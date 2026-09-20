@@ -23,8 +23,15 @@ from pipeline import run_grading, stage_rubric
 from llm import get_env, demo_mode
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-SAMPLES = os.path.join(ROOT, "data", "samples")
+# 本地优先用完整脱敏样本（data/samples，不入库）；云端仓库只有公开裁剪版 samples_demo
+if os.path.isdir(os.path.join(ROOT, "data", "samples")):
+    SAMPLES = os.path.join(ROOT, "data", "samples")
+    _SAMPLE_NOTE = ""
+else:
+    SAMPLES = os.path.join(ROOT, "samples_demo")
+    _SAMPLE_NOTE = "云端演示样本为「证据窗口裁剪版」（与公开案例一致），本地运行请使用完整样本"
 RESULTS = os.path.join(ROOT, "data", "results")
+IS_CLOUD = not os.path.isdir(os.path.join(ROOT, "data", "samples"))
 
 st.set_page_config(page_title="AutoGrader", page_icon="📋", layout="wide")
 
@@ -100,10 +107,17 @@ with tab1:
         st.subheader("选择报告")
         mode = st.radio("来源", ["内置脱敏样本", "上传文件"], horizontal=True)
         if mode == "内置脱敏样本":
-            files = sorted(f for f in os.listdir(SAMPLES) if f.startswith("S"))
-            pick = st.selectbox("样本", files)
-            full_text, sections = load_text(pick)
-            report_id = os.path.splitext(pick)[0]
+            files = sorted(f for f in os.listdir(SAMPLES) if f.startswith("S")) \
+                if os.path.isdir(SAMPLES) else []
+            if not files:
+                st.warning("未找到内置样本，请改用「上传文件」")
+                full_text, sections, report_id = "", [], ""
+            else:
+                if _SAMPLE_NOTE:
+                    st.caption(_SAMPLE_NOTE)
+                pick = st.selectbox("样本", files)
+                full_text, sections = load_text(pick)
+                report_id = os.path.splitext(pick)[0]
         else:
             up = st.file_uploader("上传 PDF / DOCX / TXT", type=["pdf", "docx", "txt", "md"])
             if up:

@@ -50,23 +50,19 @@
    "evidence": [
     {
      "section_id": "s7",
-     "quote": "新建系统变量JAVA_HOME，值为JDK安装路径C:\\Program Files\\Java\\jdk-25。",
-     "char_start": 492
+     "quote": "新建系统变量JAVA_HOME，值为JDK安装路径C:\\Program Files\\Java\\jdk-25。"
     },
     {
      "section_id": "s7",
-     "quote": "编辑系统变量Path，添加%JAVA_HOME%\\bin，确保Java命令可在任意目录下调用。",
-     "char_start": 547
+     "quote": "编辑系统变量Path，添加%JAVA_HOME%\\bin，确保Java命令可在任意目录下调用。"
     },
     {
      "section_id": "s9",
-     "quote": "java -version：查看Java运行时版本，输出JDK 25相关信息则安装成功。",
-     "char_start": 684
+     "quote": "java -version：查看Java运行时版本，输出JDK 25相关信息则安装成功。"
     },
     {
      "section_id": "s10",
-     "quote": "以IntelliJ IDEA为例，操作步骤如下：",
-     "char_start": 868
+     "quote": "以IntelliJ IDEA为例，操作步骤如下："
     }
    ]
   },
@@ -89,18 +85,15 @@
    "evidence": [
     {
      "section_id": "s17",
-     "quote": "运行结果",
-     "char_start": 1201
+     "quote": "运行结果"
     },
     {
      "section_id": "s23",
-     "quote": "运行结果示例",
-     "char_start": 3917
+     "quote": "运行结果示例"
     },
     {
      "section_id": "s17",
-     "quote": "控制台运行结果截图",
-     "char_start": 1198
+     "quote": "控制台运行结果截图"
     }
    ]
   },
@@ -114,13 +107,11 @@
    "evidence": [
     {
      "section_id": "s24",
-     "quote": "整体时间复杂度为O(n²)，空间复杂度为O(n)。",
-     "char_start": 4053
+     "quote": "整体时间复杂度为O(n²)，空间复杂度为O(n)。"
     },
     {
      "section_id": "s40",
-     "quote": "文字分析部分观点明确，条理清楚，符合实验要求。",
-     "char_start": 5541
+     "quote": "文字分析部分观点明确，条理清楚，符合实验要求。"
     }
    ]
   }

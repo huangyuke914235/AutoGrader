@@ -41,18 +41,15 @@
    "evidence": [
     {
      "section_id": "s3",
-     "quote": "本实验围绕回答清晰度与问答回避策略展开，目标是把 question 与 interview_answer 组成一个文本对分类任务",
-     "char_start": 79
+     "quote": "本实验围绕回答清晰度与问答回避策略展开，目标是把 question 与 interview_answer 组成一个文本对分类任务"
     },
     {
      "section_id": "s3",
-     "quote": "理解 response clarity 与 evasion strategy 的概念，并明确高层三分类和细粒度九分类的关系。",
-     "char_start": 268
+     "quote": "理解 response clarity 与 evasion strategy 的概念，并明确高层三分类和细粒度九分类的关系。"
     },
     {
      "section_id": "s3",
-     "quote": "复现 TF-IDF + Logistic Regression 与 SentenceTransformer 表示 + Logistic Regression 两类基线。",
-     "char_start": 331
+     "quote": "复现 TF-IDF + Logistic Regression 与 SentenceTransformer 表示 + Logistic Regression 两类基线。"
     }
    ]
   },
@@ -66,18 +63,15 @@
    "evidence": [
     {
      "section_id": "s10",
-     "quote": "本次续做使用 Anaconda 的 pytorch 环境：D:\\Anaconda\\envs\\pytorch\\python.exe，PyTorch 版本为 2.14.0+cu130，CUDA 可用。",
-     "char_start": 2268
+     "quote": "本次续做使用 Anaconda 的 pytorch 环境：D:\\Anaconda\\envs\\pytorch\\python.exe，PyTorch 版本为 2.14.0+cu130，CUDA 可用。"
     },
     {
      "section_id": "s10",
-     "quote": "可复现实验命令：在 code 目录运行 D:\\Anaconda\\envs\\pytorch\\python.exe 02_baselines.py",
-     "char_start": 2500
+     "quote": "可复现实验命令：在 code 目录运行 D:\\Anaconda\\envs\\pytorch\\python.exe 02_baselines.py"
     },
     {
      "section_id": "s10",
-     "quote": "所有脚本固定 SEED=42，并输出 JSON 指标、CSV 预测和数据元信息。",
-     "char_start": 2459
+     "quote": "所有脚本固定 SEED=42，并输出 JSON 指标、CSV 预测和数据元信息。"
     }
    ]
   },
@@ -100,18 +94,15 @@
    "evidence": [
     {
      "section_id": "s19",
-     "quote": "QNLI 迁移结果的 Macro-F1 为 0.5741，两个类别 F1 分别为 0.5423 和 0.6058。",
-     "char_start": 4611
+     "quote": "QNLI 迁移结果的 Macro-F1 为 0.5741，两个类别 F1 分别为 0.5423 和 0.6058。"
     },
     {
      "section_id": "s10",
-     "quote": "所有脚本固定 SEED=42，并输出 JSON 指标、CSV 预测和数据元信息。",
-     "char_start": 2459
+     "quote": "所有脚本固定 SEED=42，并输出 JSON 指标、CSV 预测和数据元信息。"
     },
     {
      "section_id": "s13",
-     "quote": "图3  统一测试集上的关键运行结果与最佳模型混淆矩阵",
-     "char_start": 3027
+     "quote": "图3  统一测试集上的关键运行结果与最佳模型混淆矩阵"
     }
    ]
   },
@@ -125,13 +116,11 @@
    "evidence": [
     {
      "section_id": "s15",
-     "quote": "错误并不都来自词汇缺失，很多案例是问题只被部分回答、回答先提供背景再转移主题，或者回答隐含给出结论而没有直接表态。",
-     "char_start": 3494
+     "quote": "错误并不都来自词汇缺失，很多案例是问题只被部分回答、回答先提供背景再转移主题，或者回答隐含给出结论而没有直接表态。"
     },
     {
      "section_id": "s13",
-     "quote": "Ambivalent Reply 的识别数量最多，但仍有较多样本被误判为 Clear Reply；Clear Non-Reply 样本少且边界明显，仍是需要重点分析的少数类。",
-     "char_start": 3105
+     "quote": "Ambivalent Reply 的识别数量最多，但仍有较多样本被误判为 Clear Reply；Clear Non-Reply 样本少且边界明显，仍是需要重点分析的少数类。"
     }
    ]
   }

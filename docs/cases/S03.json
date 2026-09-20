@@ -41,18 +41,15 @@
    "evidence": [
     {
      "section_id": "s9",
-     "quote": "一 实验目的",
-     "char_start": 720
+     "quote": "一 实验目的"
     },
     {
      "section_id": "s9",
-     "quote": "掌握简单RNN在时间维度上的隐藏状态递推和输出概率计算。",
-     "char_start": 764
+     "quote": "掌握简单RNN在时间维度上的隐藏状态递推和输出概率计算。"
     },
     {
      "section_id": "s9",
-     "quote": "推导并实现平均交叉熵损失、BPTT梯度和梯度下降更新。",
-     "char_start": 795
+     "quote": "推导并实现平均交叉熵损失、BPTT梯度和梯度下降更新。"
     }
    ]
   },
@@ -66,18 +63,15 @@
    "evidence": [
     {
      "section_id": "s30",
-     "quote": "在提交文件夹中打开终端，依次执行以下命令。",
-     "char_start": 3315
+     "quote": "在提交文件夹中打开终端，依次执行以下命令。"
     },
     {
      "section_id": "s30",
-     "quote": "python -m pip install -r requirements.txt",
-     "char_start": 3337
+     "quote": "python -m pip install -r requirements.txt"
     },
     {
      "section_id": "s10",
-     "quote": "三 实验环境与参数",
-     "char_start": 1088
+     "quote": "三 实验环境与参数"
     }
    ]
   },
@@ -91,13 +85,11 @@
    "evidence": [
     {
      "section_id": "s15",
-     "quote": "模型采用单层tanh RNN。W1把29维独热输入映射到48维隐藏空间；W2把上一时刻隐藏状态映射到当前隐藏状态；W3把48维隐藏状态映射为29维字符分数。",
-     "char_start": 1530
+     "quote": "模型采用单层tanh RNN。W1把29维独热输入映射到48维隐藏空间；W2把上一时刻隐藏状态映射到当前隐藏状态；W3把48维隐藏状态映射为29维字符分数。"
     },
     {
      "section_id": "s23",
-     "quote": "loss, cache = model.forward(inputs, targets)\ngradients, gradient_norm = model.backward(cache)\nclip_scale = model.update(gradients, learning_rate=0.12, clip_norm=5.0)",
-     "char_start": 2346
+     "quote": "loss, cache = model.forward(inputs, targets)\ngradients, gradient_norm = model.backward(cache)\nclip_scale = model.update(gradients, learning_rate=0.12, clip_norm=5.0)"
     }
    ]
   },
@@ -111,18 +103,15 @@
    "evidence": [
     {
      "section_id": "s8",
-     "quote": "平均交叉熵由3.377395降至0.008738，困惑度降至1.008776",
-     "char_start": 546
+     "quote": "平均交叉熵由3.377395降至0.008738，困惑度降至1.008776"
     },
     {
      "section_id": "s25",
-     "quote": "图 3 前向传播轨迹与最终生成结果",
-     "char_start": 2762
+     "quote": "图 3 前向传播轨迹与最终生成结果"
     },
     {
      "section_id": "s25",
-     "quote": "图 4 训练损失曲线",
-     "char_start": 2780
+     "quote": "图 4 训练损失曲线"
     }
    ]
   },
@@ -136,13 +125,11 @@
    "evidence": [
     {
      "section_id": "s25",
-     "quote": "模型在44个输出位置全部复现目标句，表明它已记住该训练序列及其上下文。",
-     "char_start": 2685
+     "quote": "模型在44个输出位置全部复现目标句，表明它已记住该训练序列及其上下文。"
     },
     {
      "section_id": "s32",
-     "quote": "这些结果共同证明程序能够在给定单句上正确执行字符级序列学习。",
-     "char_start": 3720
+     "quote": "这些结果共同证明程序能够在给定单句上正确执行字符级序列学习。"
     }
    ]
   }

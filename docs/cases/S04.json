@@ -1,0 +1,149 @@
+{
+ "report_id": "S04",
+ "filename": "S04.txt",
+ "total_score": 61.0,
+ "full_text": "深 圳 大 学\n自然语言处理实验报告\n对话问答回避检测与跨场景迁移分析\n基于 QEvasion 与 QNLI 的可复现文本对分类实验\n\n\n一 实验目的与要求\n本实验围绕回答清晰度与问答回避策略展开，目标是把 question 与 interview_answer 组成一个文本对分类任务，区分明确回答、模糊或矛盾回答以及明确不回答。实验同时要求建立传统基线和预训练表示基线，使用 Macro-F1、类别级 Precision、Recall、F1 及混淆矩阵进行评价，并将统一的数据适配、训练和评估流程迁移到 QNLI 问答相关性场景。\n理解 response clarity 与 evasion strategy 的概念，并明确高层三分类和细粒度九分类的关系。\n复现 TF-IDF + Logistic Regression 与 SentenceTransformer 表示 + Logistic Regression 两类基线。\n固定随机种子，保存配置、指标、逐样本概率和预测文件，使实验可以重复运行。\n通过 QNLI 迁移验证统一的 text_a / text_b / label 接口，并分析哪些假设可以复用。\n二 任务定义与标签体系\n任务输入是一条目标子问题 question 及其对应的完整回答 interview_answer，输出是回答清晰度的高层标签。数据中的原始标签为 Clear Reply、Ambivalent 和 Clear Non-Reply；为了与报告表述一致，第二类在本文中记为 Ambivalent Reply。\n\n模型不能只根据回答是否长、是否流畅来判断类别，而应比较问题所要求的信息与回答实际提供的信息。这个要求使本任务区别于普通情感分类，也解释了为什么需要同时编码 question 和 answer。\n三 数据准备与探索性分析\n3.1 数据来源与统一字段\n原任务使用 QEvasion 数据集（ailsntua/QEvasion），本次实验使用其本地保存版本，训练集 3,448 条、测试集 308 条。适配器将 question 映射为 text_a，将 interview_answer……\n\n……均，使少数类的识别质量与多数类同等进入主指标。它能够同时反映 Precision 与 Recall 的平衡：模型不能通过大量输出某一类来换取虚高的准确率。与此同时，Accuracy、Macro-P、Macro-R、类别级指标和混淆矩阵仍作为辅助证据，用来说明模型的总体判断、类别偏差及具体混淆方向。\n四 模型、训练配置与复现\n4.1 模型设计\n基线 A 使用 question + [SEP] + answer 的拼接文本，通过 TF-IDF 提取 unigram 或 unigram+bigram 特征，再训练 Logistic Regression。验证集固定为训练集的 10%，用于选择 n-gram 与 class_weight。基线 B 使用 sentence-transformers/all-MiniLM-L6-v2 分别编码 question 和 answer，得到 384 维归一化向量，并拼接 e_q、e_a、|e_q-e_a|、e_q*e_a 四部分特征形成 1536 维表示，编码器冻结，仅训练带类别权重的 Logistic Regression。\n\n4.2 运行环境与输出\n本次续做使用 Anaconda 的 pytorch 环境：D:\\Anaconda\\envs\\pytorch\\python.exe，PyTorch 版本为 2.14.0+cu130，CUDA 可用。由于该环境目录对当前用户不可写，datasets、pandas 和 scikit-learn 安装在 code/deps 中，并由公共模块自动加入路径；这不会覆盖 PyTorch 环境。所有脚本固定 SEED=42，并输出 JSON 指标、CSV 预测和数据元信息。\n可复现实验命令：在 code 目录运行 D:\\Anaconda\\envs\\pytorch\\python.exe 02_baselines.py；运行 D:\\Anaconda\\envs\\pytorch\\python.exe 04_transfer_qnli.py 可重新完成 QNLI 迁移。原任务的 SentenceTransformer 结果已经保存于 outputs/metrics_st_lr.json 和 outputs/predictions_st_lr.csv。\n五 实验结果\n5.1 模型总体性能\n\n在 QEvasion 测试集上，SentenceTransformer 表示 + LR 的 Macro-F1 为 0.4855，比 TF-IDF + LR 的 0.4351 提高约 0.0504，说明联合语义表示对回答清晰度判断有帮助。多数类基线的 Accuracy 虽为 0.6688，但 Macro-F1 仅 0.2672，验证了类别不均衡下 Accuracy 的误导性。QNLI 迁移结果的 Macro-F1 为 0.5741，不能与三分类原任务直接按绝对值比较，但说明同一套文本对接口和评估流程可以在二分类问答相关性任务中运行。\n\n图3  统一测试集上的关键运行结果与最佳模型混淆矩阵\n图中同时列出原任务两个基线、已有的预训练表示基线和 QNLI 迁移结果。最佳原任务模型的混淆矩阵显示，Ambivalent Reply 的识别数量最多，但仍有较多样本被误判为 Clear Reply；Clear Non-Reply 样本少且边界明显，仍是需要重点分析的少数类。\n5.2 最佳模型类别级结果\n\nClear Reply 的 F1 为 0.4571，Ambivalent Reply 的 F1 为 0.6938，Clear Non-Reply 的 F1 为 0.3056。少数类 Clear Non-Reply 的 Recall 虽达到 0.4783，但 Precision 只有 0.2245，说明模型倾向于把部分模糊或部分回答也判为明确不回答。该现象与类别数量少、语言边界重叠及回答中的显式拒答线索不足有关。\n六 错误分析\n错误分析从 predictions_st_lr.csv 中筛选真实标签与预测标签不一致的样本，并按回答长度、真实类别和混淆方向选择代表性案例。错误并不都来自词汇缺失，很多案例是问题只被部分回答、回答先提供背景再转移主题，或者回答隐含给出结论而没有直接表态。\n\n6.1 主要误差来源\n长而空泛：回答的词数很长，但核心信息比例低，TF-IDF 和句向量都可能被高频背景词牵引。\n部分回答：一个回答包含多个子问题时只回应其中一项，整体语气可能很肯定，却没有满足全部信息需求。\n隐式回答：需要结合上下文才能推出结论，表面没有明确的肯定或否定词，导致模型偏向 Ambivalent Reply。\n主题转移与套话：回答通过复述政策、强调原则或引入新议题回避原问题，模型可能把流畅性误当成相关性。\n类别边界与噪声：Clear Non-Reply 样本少，Clarification、Claims ignorance 和 Partial/half-answer 的边界会放大预测不稳定。\n6.2 可验证的改进假设\n加入问题-回答交互特征，例如问题类型、回答中是否覆盖关键实体和否定结构，并比较其对少数类 Recall 的影响。\n按 interview title 或 president 做分组交叉验证，检验模型是否依赖人物和主题词，并与随机切分结果对比。\n采用 class-balanced loss、阈值校准或少数类过采样，重点观察 Clear Non-Reply 的……\n\n……uestion 与 sentence 组成二分类文本对，判断句子是否包含问题答案。本实验从官方 GLUE QNLI train.tsv 中按固定种子对两个类别各抽取 6,000 条，得到 12,000 条训练样本，并使用 dev.tsv 的 5,463 条作为测试集。字段适配后仍使用 text_a、text_b、label、group、uid 五个统一字段，模型选择、概率输出和评估函数均复用原任务代码。\n\n7.2 迁移分析\n政治问答中的回避检测和 QNLI 的答案包含判断都可以抽象为“问题要求的信息”与“第二段文本实际提供的信息”之间的关系判断，因此 text_a/text_b 接口、拼接分隔符、TF-IDF + LR 管线、固定验证集、概率输出和 Macro-F1 评价可以直接复用。不能直接复用的部分包括标签数量和标签语义：QEvasion 的三类标签描述回答清晰度，QNLI 的两类标签描述句子蕴含关系；原任务的 president 分组字段在 QNLI 中也没有对应物。由于标签空间不同，本实验没有把原任务分类器硬套到 QNLI，而是明确记录为“直接迁移不适用”，再进行适配后训练。\nQNLI 迁移结果的 Macro-F1 为 0.5741，两个类别 F1 分别为 0.5423 和 0.6058。这个结果的意义不是证明 QNLI 绝对更容易，而是说明统一适配器确实把数据读取、文本对构造、模型选择、评估和预测文件生成串成了可复用流程。迁移时真正需要重新设计的是标签映射、抽样策略和错误解释，而不是整个工程骨架。\n八 实验结论\n本实验把问答回避检测转化为可评估的文本对三分类任务，并完成了从数据理解、基线建立到跨场景迁移的完整流程。EDA 表明 QEvasion 存在明显的类别不均衡，回答长度远高于问题长度，同一采访包含多个子问题，因此仅依赖 Accuracy 或回答表面词汇都可能得到误导性结论。多数类基线的 Accuracy 达到 0.6688，但 Macro-F1 只有 0.2672，说明 Macro-F1 更适合作为主指标。TF-IDF + LR 提供了可解释的传统基线，SentenceTransformer 冻结表示 + LR 将 Macro-F1 从 0.4351 提升到 0.4855，提升主要来自对文本对语义关系的更好建模，但 Clear Non-Reply 仍然最难识别。典型错误包括长而空泛、部分回答、隐式回答、主题转移和标签边界模糊，后续可从问题类型、关键信息覆盖、分组……",
+ "items": [
+  {
+   "id": "r1",
+   "name": "实验目的明确",
+   "max_score": 15.0
+  },
+  {
+   "id": "r2",
+   "name": "环境与步骤",
+   "max_score": 20.0
+  },
+  {
+   "id": "r3",
+   "name": "核心实现",
+   "max_score": 25.0
+  },
+  {
+   "id": "r4",
+   "name": "结果与数据",
+   "max_score": 20.0
+  },
+  {
+   "id": "r5",
+   "name": "分析与总结",
+   "max_score": 20.0
+  }
+ ],
+ "judgements": [
+  {
+   "rubric_item_id": "r1",
+   "verdict": "hit",
+   "score": 15.0,
+   "confidence": 0.95,
+   "reason": "报告开头设有“一 实验目的与要求”章节，明确写出实验围绕回答清晰度与问答回避策略展开，目标是将question与interview_answer组成文本对分类任务，并列出需掌握的能力（理解概念、复现基线、固定随机种子、迁移验证等），符合实验目的明确的要求。",
+   "needs_review": false,
+   "evidence": [
+    {
+     "section_id": "s3",
+     "quote": "本实验围绕回答清晰度与问答回避策略展开，目标是把 question 与 interview_answer 组成一个文本对分类任务",
+     "char_start": 79
+    },
+    {
+     "section_id": "s3",
+     "quote": "理解 response clarity 与 evasion strategy 的概念，并明确高层三分类和细粒度九分类的关系。",
+     "char_start": 268
+    },
+    {
+     "section_id": "s3",
+     "quote": "复现 TF-IDF + Logistic Regression 与 SentenceTransformer 表示 + Logistic Regression 两类基线。",
+     "char_start": 331
+    }
+   ]
+  },
+  {
+   "rubric_item_id": "r2",
+   "verdict": "partial",
+   "score": 14.0,
+   "confidence": 0.85,
+   "reason": "报告在4.2节给出了运行环境（Anaconda pytorch环境、PyTorch版本、CUDA、依赖安装位置）和可复现命令（运行02_baselines.py、04_transfer_qnli.py），并提到固定SEED=42，满足环境与步骤的部分要求。但缺少完整的安装/配置步骤（如依赖安装命令、环境创建过程），步骤描述较简略，未达到'写清可复现操作步骤'的完整要求。 （二次判定为 hit，两次不一致，已转人工复核）",
+   "needs_review": true,
+   "evidence": [
+    {
+     "section_id": "s10",
+     "quote": "本次续做使用 Anaconda 的 pytorch 环境：D:\\Anaconda\\envs\\pytorch\\python.exe，PyTorch 版本为 2.14.0+cu130，CUDA 可用。",
+     "char_start": 2268
+    },
+    {
+     "section_id": "s10",
+     "quote": "可复现实验命令：在 code 目录运行 D:\\Anaconda\\envs\\pytorch\\python.exe 02_baselines.py",
+     "char_start": 2500
+    },
+    {
+     "section_id": "s10",
+     "quote": "所有脚本固定 SEED=42，并输出 JSON 指标、CSV 预测和数据元信息。",
+     "char_start": 2459
+    }
+   ]
+  },
+  {
+   "rubric_item_id": "r3",
+   "verdict": "miss",
+   "score": 0.0,
+   "confidence": 0.9,
+   "reason": "报告片段仅涉及数据设置、改进假设、图表分析和评估指标，未给出任何核心代码、模型结构或关键实现说明，找不到核心实现的原文依据。 （二次判定为 partial，两次不一致，已转人工复核）",
+   "needs_review": true,
+   "evidence": []
+  },
+  {
+   "rubric_item_id": "r4",
+   "verdict": "hit",
+   "score": 20.0,
+   "confidence": 0.9,
+   "reason": "报告给出了运行结果与实验数据，包括QNLI迁移的Macro-F1及各类F1数值、运行环境与输出文件说明、以及图3中的关键运行结果与混淆矩阵，满足给出运行结果、截图、表格或实验数据的要求。",
+   "needs_review": false,
+   "evidence": [
+    {
+     "section_id": "s19",
+     "quote": "QNLI 迁移结果的 Macro-F1 为 0.5741，两个类别 F1 分别为 0.5423 和 0.6058。",
+     "char_start": 4611
+    },
+    {
+     "section_id": "s10",
+     "quote": "所有脚本固定 SEED=42，并输出 JSON 指标、CSV 预测和数据元信息。",
+     "char_start": 2459
+    },
+    {
+     "section_id": "s13",
+     "quote": "图3  统一测试集上的关键运行结果与最佳模型混淆矩阵",
+     "char_start": 3027
+    }
+   ]
+  },
+  {
+   "rubric_item_id": "r5",
+   "verdict": "partial",
+   "score": 12.0,
+   "confidence": 0.7,
+   "reason": "报告设有'六 错误分析'章节，对错误来源进行了讨论（如部分回答、转移主题、隐含结论等），并在图3说明中对混淆矩阵结果做了分析（Ambivalent Reply误判、Clear Non-Reply少数类）。这些属于对结果的分析讨论。但报告缺少独立的总结、结论或心得章节，未对整体实验进行归纳总结，因此仅部分满足评分点要求。 （二次判定为 hit，两次不一致，已转人工复核）",
+   "needs_review": true,
+   "evidence": [
+    {
+     "section_id": "s15",
+     "quote": "错误并不都来自词汇缺失，很多案例是问题只被部分回答、回答先提供背景再转移主题，或者回答隐含给出结论而没有直接表态。",
+     "char_start": 3494
+    },
+    {
+     "section_id": "s13",
+     "quote": "Ambivalent Reply 的识别数量最多，但仍有较多样本被误判为 Clear Reply；Clear Non-Reply 样本少且边界明显，仍是需要重点分析的少数类。",
+     "char_start": 3105
+    }
+   ]
+  }
+ ],
+ "feedback": {
+  "summary": "报告在实验目的（r1）和结果数据（r4）上完成度很高，目标表述清晰、指标与图表齐全，值得肯定。主要失分点集中在核心实现（r3）完全缺失，没有给出任何模型结构或关键代码；环境与步骤（r2）只写了运行命令，缺少依赖安装与环境创建过程；分析与总结（r5）有错误分析但缺少独立的结论章节。整体属于“有结果、缺实现、少总结”的报告。",
+  "suggestions": [
+   "补核心实现：在报告中新增“核心实现”一节，至少贴出TF-IDF+LogisticRegression与SentenceTransformer+LogisticRegression两条基线的模型定义、损失函数、优化器与训练循环代码，并说明高层三分类与细粒度九分类的映射逻辑，放在4.2节之后。",
+   "补可复现步骤：在4.2节把“环境与步骤”写全，具体补上conda create -n pytorch python=3.x、pip install torch sentence-transformers scikit-learn pandas的安装命令、环境激活命令，以及每个脚本的输入文件路径、输出文件路径和运行顺序，让读者能按步骤从零复现。",
+   "补总结章节：在“六 错误分析”之后新增“七 总结与结论”，用3-5条写出本次实验的结论（如两类基线在统一测试集上的Macro-F1对比、迁移到QNLI后的性能变化、Ambivalent Reply与Clear Non-Reply的识别难点），并给出下一步改进方向（如类别加权损失或数据增强）。"
+  ]
+ },
+ "_is_public": true,
+ "_note": "正文已裁剪为证据片段窗口，仅用于公开演示"
+}

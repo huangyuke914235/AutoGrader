@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoGrader · 实验报告智能评阅平台</title>
+<style>
+  :root{
+    --bg:#ffffff; --bg2:#f7f7f5; --bd:#e3e2dd; --tx:#1f1f1d; --tx2:#5f5e5a; --tx3:#8b8a85;
+    --blue:#185fa5; --blue-bg:#e6f1fb; --amber:#854f0b; --amber-bg:#faeeda;
+    --gray-bg:#f1efe8; --teal:#0f6e56; --teal-bg:#e1f5ee; --red:#a32d2d; --red-bg:#fcebeb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif;
+    font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto;padding:40px 24px 72px}
+  a{color:var(--blue);text-decoration:none}
+  a:hover{text-decoration:underline}
+  h1{font-size:27px;font-weight:600;margin:0 0 8px;letter-spacing:-.01em}
+  h2{font-size:19px;font-weight:600;margin:48px 0 14px;padding-top:20px;border-top:1px solid var(--bd)}
+  h3{font-size:15px;font-weight:600;margin:20px 0 8px}
+  p{margin:0 0 12px}
+  .lead{font-size:16px;color:var(--tx2);margin-bottom:4px}
+  .sub{color:var(--tx3);font-size:13px}
+  .btns{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0 8px}
+  .btn{display:inline-block;padding:9px 18px;border-radius:8px;border:1px solid var(--bd);
+    font-size:14px;color:var(--tx);background:var(--bg)}
+  .btn:hover{text-decoration:none;border-color:#b4b2a9}
+  .btn-p{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:14px 0}
+  .card{border:1px solid var(--bd);border-radius:12px;padding:14px 16px}
+  .card .k{font-size:13px;color:var(--tx2);margin-bottom:4px}
+  .card .v{font-size:22px;font-weight:600}
+  .pain li{margin-bottom:8px}
+  .tip{background:var(--bg2);border-radius:10px;padding:12px 16px;font-size:14px;color:var(--tx2);margin:14px 0}
+  .warn{background:var(--amber-bg);border-radius:10px;padding:12px 16px;font-size:14px;color:var(--amber);margin:14px 0}
+  /* 案例区 */
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:14px 0}
+  select,button,input{padding:7px 12px;border:1px solid var(--bd);border-radius:8px;
+    font-size:14px;font-family:inherit;background:var(--bg);color:var(--tx)}
+  button{cursor:pointer}
+  button:hover{border-color:#b4b2a9}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  .panel{border:1px solid var(--bd);border-radius:12px;padding:14px 16px}
+  .panel h4{margin:0 0 10px;font-size:14px;font-weight:600;color:var(--tx2)}
+  .text{white-space:pre-wrap;font-size:13px;line-height:1.9;max-height:420px;overflow-y:auto}
+  mark{background:#ffe08a;padding:1px 0}
+  mark.on{background:#ffb020}
+  .item{border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin-bottom:10px;cursor:pointer}
+  .item:hover{border-color:#b4b2a9}
+  .item.on{border-color:var(--blue);background:var(--blue-bg)}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .nm{font-size:14px;font-weight:500}
+  .sc{font-size:13px;color:var(--tx2);font-variant-numeric:tabular-nums}
+  .badge{font-size:12px;padding:2px 8px;border-radius:999px}
+  .b-hit{background:var(--teal-bg);color:var(--teal)}
+  .b-part{background:var(--amber-bg);color:var(--amber)}
+  .b-miss{background:var(--gray-bg);color:var(--tx2)}
+  .b-rev{background:var(--red-bg);color:var(--red)}
+  .quote{font-size:13px;color:var(--tx2);border-left:2px solid var(--bd);padding-left:10px;margin:6px 0}
+  .reason{font-size:13px;margin:4px 0 0}
+  .scorebox{display:flex;align-items:baseline;gap:8px;margin:8px 0 14px}
+  .scorebox .n{font-size:38px;font-weight:600;line-height:1}
+  /* 架构 */
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:14px 0}
+  .step{border:1px solid var(--bd);border-radius:12px;padding:12px 14px;background:var(--blue-bg)}
+  .step .t{font-size:14px;font-weight:600;color:#0c447c}
+  .step .d{font-size:13px;color:#185fa5}
+  .loop{background:var(--gray-bg);border-radius:12px;padding:12px 16px;margin-top:12px;font-size:14px}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{border:1px solid var(--bd);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--bg2);font-weight:600}
+  footer{margin-top:56px;padding-top:16px;border-top:1px solid var(--bd);color:var(--tx3);font-size:13px}
+  code{background:var(--bg2);padding:1px 5px;border-radius:4px;font-size:13px;
+    font-family:ui-monospace,Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>AutoGrader · 实验报告智能评阅平台</h1>
+<p class="lead">不做「让 AI 打个分」，而做「把评分标准变成可核查、可溯源、可校准的判定流水线」。</p>
+<p class="sub">粤港澳大湾区 AI Coding 创新大赛 · 方向一 AI + 教学管理助手</p>
+
+<div class="btns">
+  <a class="btn btn-p" id="demoLink" href="#" >在线体验 Demo</a>
+  <a class="btn" id="repoLink" href="#" >源代码仓库</a>
+  <a class="btn" id="videoLink" href="#" >3 分钟演示视频</a>
+</div>
+
+<h2>我们在解决什么</h2>
+<ul class="pain">
+  <li><strong>耗时长</strong> —— 一个班 60 份实验报告，每份 8–15 分钟，合计 10 小时以上，且集中在期末</li>
+  <li><strong>评分不一致</strong> —— 同一份报告，先批的和后批的能差 5 分；多个助教之间标准漂移</li>
+  <li><strong>反馈笼统</strong> —— 评语停留在「分析不够深入」，学生看完不知道改哪里</li>
+  <li><strong>标准难复用</strong> —— 评分标准写在 Word 里，换一批助教又从头解释一遍</li>
+</ul>
+<div class="tip">
+通用大模型解决不了这四件事：它会<strong>标准漂移</strong>（每次重新"理解"标准）、<strong>无法溯源</strong>（说不出依据在哪一段）、<strong>幻觉给分</strong>（报告没写的内容默认给了分）。
+而这三点，恰好就是我们的三个创新点。
+</div>
+
+<h2>离线可看案例</h2>
+<p class="sub">无需联网、无需登录，直接查看真实的评阅过程与证据链。左右两栏联动：点击右侧评分点，左侧原文自动高亮对应证据。</p>
+
+<div class="bar">
+  <span style="font-size:14px;color:var(--tx2)">选择报告：</span>
+  <select id="caseSel"></select>
+  <button id="loadBtn">加载案例</button>
+  <button id="csvBtn">导出 CSV</button>
+  <span id="status" style="font-size:13px;color:var(--tx3)"></span>
+</div>
+
+<div id="caseBox" style="display:none">
+  <div class="scorebox">
+    <span class="n" id="total">—</span>
+    <span class="sub">/ 100 分 · AI 初评，教师可逐项覆盖</span>
+  </div>
+  <div class="grid">
+    <div class="panel">
+      <h4>报告原文（命中片段高亮）</h4>
+      <div class="text" id="fullText"></div>
+    </div>
+    <div class="panel">
+      <h4>逐评分点判定</h4>
+      <div id="items"></div>
+    </div>
+  </div>
+  <div class="panel" style="margin-top:16px">
+    <h4>评语与改进建议</h4>
+    <div id="feedback"></div>
+  </div>
+</div>
+
+<div class="warn" id="caseWarn">
+当前 <code>docs/cases/</code> 下还没有案例文件。请在本地用 Python 跑完评阅后，
+把结果 JSON 存到这里（格式见下方），刷新即可展示。<br>
+想先预览交互结构？在网址后加 <code>?demo=1</code> 打开占位示例（非真实评阅结果，仅用于检查页面）。
+</div>
+
+<h3>案例文件格式（<code>docs/cases/&lt;报告ID&gt;.json</code>）</h3>
+<pre style="background:var(--bg2);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13px">{
+  "report_id": "S01",
+  "filename": "实验报告_S01.pdf",
+  "total_score": 78,
+  "full_text": "报告全文纯文本……",
+  "items": [{"id":"r1","name":"实验步骤完整性","max_score":20}],
+  "judgements": [{
+    "rubric_item_id": "r1",
+    "verdict": "partial",            // hit | partial | miss
+    "score": 12, "confidence": 0.72,
+    "reason": "描述了现象但未做误差分析",
+    "needs_review": false,
+    "evidence": [{"section_id":"s3","quote":"逐字复制的原文片段"}]
+  }],
+  "feedback": {"summary":"……", "suggestions":["……"]}
+}</pre>
+
+<h2>方法论：RAG-E 四阶判定链</h2>
+<div class="steps">
+  <div class="step"><div class="t">R 评分点原子化</div><div class="d">自然语言 rubric → 可判定的原子评分点</div></div>
+  <div class="step"><div class="t">A 证据锚定判定</div><div class="d">逐点独立判定，必须回引原文</div></div>
+  <div class="step"><div class="t">G 一致性守卫</div><div class="d">双跑 + 置信度，低置信转人工</div></div>
+  <div class="step"><div class="t">E 反馈生成</div><div class="d">每条评语绑定证据，可跳转</div></div>
+</div>
+<div class="loop"><strong>人在回路贯穿全层：</strong>教师确认评分点 · 覆盖判定并留痕 · 修改 rubric 后全批重算</div>
+
+<h3>三条不可违背的工程纪律</h3>
+<table>
+<tr><th style="width:34%">纪律</th><th>为什么</th></tr>
+<tr><td><strong>分数由代码加总，模型只输出单点判定</strong></td><td>模型波动被锁死在单个评分点上，总分不受影响</td></tr>
+<tr><td><strong>无证据的判断不算数</strong></td><td>引用必须能原文精确匹配，匹配不上即作废重跑；绝不放宽匹配规则让数字变好看</td></tr>
+<tr><td><strong>不确定就交给人</strong></td><td>低置信或双跑不一致，显式标记并置顶人工复核</td></tr>
+</table>
+
+<h2>自评测结果</h2>
+<p class="sub">我们的准确率不由自己宣布，而由<strong>独立封存的人工评分</strong>检验：gold set 由非主程成员独立打分，调优期间全程封存，最后才解封评测。</p>
+<div class="cards">
+  <div class="card"><div class="k">平均绝对误差 MAE</div><div class="v" id="m1">—</div></div>
+  <div class="card"><div class="k">误差 ≤5 分占比</div><div class="v" id="m2">—</div></div>
+  <div class="card"><div class="k">证据可溯源率</div><div class="v" id="m3">—</div></div>
+</div>
+
+<h2>团队与开源</h2>
+<p id="teamInfo">
+<!-- TODO：填团队成员（姓名 / 专业 / 分工）与开源协议说明 -->
+团队成员：＿＿＿（专业 / 分工）　·　开源协议：MIT　·　第三方库清单见仓库 README
+</p>
+
+<footer>
+本页面由 GitHub Pages 托管（静态站点）。可交互应用部署于 Streamlit Cloud，点上方「在线体验 Demo」进入。<br>
+所有评阅案例均已脱敏处理，不含有真实姓名与学号。
+</footer>
+
+</div>
+
+<script>
+/* ====== TODO：把这三个链接换成你们自己的 ====== */
+var DEMO_URL  = "https://your-streamlit-app.streamlit.app";
+var REPO_URL  = "https://github.com/your-name/autograder";
+var VIDEO_URL = "https://www.bilibili.com/video/xxxx";
+document.getElementById('demoLink').href  = DEMO_URL;
+document.getElementById('repoLink').href  = REPO_URL;
+document.getElementById('videoLink').href = VIDEO_URL;
+
+/* ====== TODO：案例列表，与 docs/cases/ 下的文件名对应 ====== */
+var CASES = ["S01", "S02", "S03"];
+
+/* ====== TODO：自评测数字，D6 跑完 benchmark 后填 ====== */
+var METRICS = {mae: null, acc: null, trace: null};
+
+var sel = document.getElementById('caseSel');
+CASES.forEach(function(c){
+  var o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o);
+});
+
+var current = null;
+
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function highlight(text, quotes, active){
+  var out = esc(text);
+  quotes.filter(function(q){return q && q.length >= 6;})
+        .sort(function(a,b){return b.length - a.length;})
+        .forEach(function(q){
+    var cls = (q === active) ? ' class="on"' : '';
+    out = out.split(esc(q)).join('<mark'+cls+'>'+esc(q)+'</mark>');
+  });
+  return out;
+}
+
+function verdictBadge(v){
+  var map = {hit:['b-hit','命中'], partial:['b-part','部分命中'], miss:['b-miss','未命中']};
+  var m = map[v] || ['b-miss', v];
+  return '<span class="badge '+m[0]+'">'+m[1]+'</span>';
+}
+
+function render(data){
+  current = data;
+  document.getElementById('caseWarn').style.display = 'none';
+  document.getElementById('caseBox').style.display = 'block';
+  document.getElementById('total').textContent = data.total_score;
+
+  var allQuotes = [];
+  (data.judgements || []).forEach(function(j){
+    (j.evidence || []).forEach(function(e){ allQuotes.push(e.quote); });
+  });
+
+  var itemsEl = document.getElementById('items');
+  itemsEl.innerHTML = '';
+  (data.judgements || []).forEach(function(j){
+    var it = (data.items || []).find(function(x){return x.id === j.rubric_item_id;}) || {};
+    var d = document.createElement('div');
+    d.className = 'item';
+    var ev = (j.evidence || []).map(function(e){
+      return '<div class="quote">「'+esc(e.quote)+'」<span style="color:var(--tx3)"> · '+esc(e.section_id||'')+'</span></div>';
+    }).join('');
+    d.innerHTML =
+      '<div class="row"><span class="nm">'+esc(it.name || j.rubric_item_id)+'</span>'+
+      '<span>'+verdictBadge(j.verdict)+(j.needs_review?' <span class="badge b-rev">待复核</span>':'')+
+      ' <span class="sc">'+j.score+' / '+it.max_score+'</span></span></div>'+
+      '<div class="reason">'+esc(j.reason||'')+
+      '<span style="color:var(--tx3)"> · 置信度 '+Number(j.confidence).toFixed(2)+'</span></div>'+ ev;
+    d.onclick = function(){
+      itemsEl.querySelectorAll('.item').forEach(function(x){x.classList.remove('on');});
+      d.classList.add('on');
+      var first = (j.evidence && j.evidence[0]) ? j.evidence[0].quote : null;
+      document.getElementById('fullText').innerHTML = highlight(data.full_text, allQuotes, first);
+      if (first){
+        var m = document.querySelector('mark.on');
+        if (m) m.scrollIntoView({block:'center', behavior:'smooth'});
+      }
+    };
+    itemsEl.appendChild(d);
+  });
+
+  document.getElementById('fullText').innerHTML = highlight(data.full_text, allQuotes, null);
+
+  var fb = data.feedback || {};
+  var sug = (fb.suggestions || []).map(function(s){return '<li>'+esc(s)+'</li>';}).join('');
+  document.getElementById('feedback').innerHTML =
+    '<p>'+esc(fb.summary||'')+'</p>' + (sug ? '<strong style="font-size:14px">改进建议</strong><ul>'+sug+'</ul>' : '');
+}
+
+function loadCase(id){
+  document.getElementById('status').textContent = '加载中…';
+  fetch('cases/' + id + '.json')
+    .then(function(r){ if(!r.ok) throw new Error('404'); return r.json(); })
+    .then(function(d){ render(d); document.getElementById('status').textContent = '已加载 ' + id; })
+    .catch(function(){
+      document.getElementById('status').textContent = '未找到 cases/' + id + '.json';
+      document.getElementById('caseWarn').style.display = 'block';
+      document.getElementById('caseBox').style.display = 'none';
+    });
+}
+
+/* 占位示例：仅用于检查页面结构，不是真实评阅结果 */
+var PLACEHOLDER = {
+  report_id: "PLACEHOLDER", filename: "占位示例.pdf", total_score: 0,
+  full_text: "这是一个占位示例，用于检查页面结构与交互。\n真实案例请在本地跑完评阅后，把结果 JSON 放到 docs/cases/ 目录下。\n\n第三段：这里会演示命中片段的高亮效果。",
+  items: [{id:"r1", name:"占位评分点", max_score:20}],
+  judgements: [{rubric_item_id:"r1", verdict:"partial", score:12, confidence:0.7,
+    reason:"这是占位数据，不是真实评阅结果", needs_review:false,
+    evidence:[{section_id:"s3", quote:"这里会演示命中片段的高亮效果"}]}],
+  feedback: {summary:"占位示例，仅用于检查页面结构。", suggestions:["把真实案例 JSON 放到 docs/cases/ 下"]}
+};
+
+document.getElementById('loadBtn').onclick = function(){
+  if (location.search.indexOf('demo=1') >= 0) { render(PLACEHOLDER); document.getElementById('status').textContent='占位示例'; }
+  else loadCase(sel.value);
+};
+
+document.getElementById('csvBtn').onclick = function(){
+  if (!current) { alert('请先加载案例'); return; }
+  var rows = [['评分点','判定','得分','满分','置信度','理由','证据']];
+  (current.judgements||[]).forEach(function(j){
+    var it = (current.items||[]).find(function(x){return x.id===j.rubric_item_id;}) || {};
+    rows.push([it.name||j.rubric_item_id, j.verdict, j.score, it.max_score, j.confidence,
+               j.reason, (j.evidence||[]).map(function(e){return e.quote;}).join(' | ')]);
+  });
+  var csv = rows.map(function(r){
+    return r.map(function(c){return '"'+String(c==null?'':c).replace(/"/g,'""')+'"';}).join(',');
+  }).join('\n');
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8'}));
+  a.download = current.report_id + '_评阅结果.csv';
+  a.click();
+};
+
+if (METRICS.mae  !== null) document.getElementById('m1').textContent = METRICS.mae + ' 分';
+if (METRICS.acc  !== null) document.getElementById('m2').textContent = METRICS.acc + '%';
+if (METRICS.trace!== null) document.getElementById('m3').textContent = METRICS.trace + '%';
+
+if (location.search.indexOf('demo=1') >= 0) { render(PLACEHOLDER); }
+else loadCase(CASES[0]);
+</script>
+</body>
+</html>

@@ -10,7 +10,9 @@
     python tools/import_gold.py
 
 校验规则：
-    - 50 行必须全部填了得分，缺一个就拒绝生成（防止半份 gold 混进评测）
+    - 一份报告要么 5 项全填，要么整份不填（整份不填的会明确列为「未纳入」，
+      例如 S06 因超长系统评不了、不参与 benchmark，可以先不打）
+    - 半份报告（填了 1~4 项）直接报错拒绝生成——半份 gold 会让评测失真
     - 每项得分必须在 0 ~ 该项满分之间
     - 判定必须是 hit / partial / miss
 """
@@ -61,9 +63,8 @@ def main():
     wb = load_workbook(XLSX, data_only=True)   # data_only：读公式的计算结果
     ws = wb["③ 逐项打分"]
 
-    gold = {}
+    by_rep = {}
     problems = []
-    filled = 0
     expected = 0
 
     for r in range(2, ws.max_row + 1):
@@ -77,6 +78,7 @@ def main():
         verdict = cell(ws, r, 7)
         evidence = cell(ws, r, 8)
         note = cell(ws, r, 9)
+        rec = by_rep.setdefault(rep, {})
 
         if score is None or score == "":
             problems.append(f"第{r}行 {rep}/{iid}：得分未填")
@@ -93,17 +95,28 @@ def main():
             problems.append(f"第{r}行 {rep}/{iid}：判定 {verdict!r} 不合法")
             continue
 
-        filled += 1
-        gold.setdefault(rep, {"items": {}, "total": 0.0})
-        gold[rep]["items"][iid] = {
-            "score": score,
-            "verdict": verdict or "",
-            "evidence": evidence or "",
-            "note": note or "",
-        }
-        gold[rep]["total"] += score
+        rec[iid] = {"score": score, "verdict": verdict or "",
+                    "evidence": evidence or "", "note": note or ""}
 
-    print(f"已填写 {filled} / {expected} 项")
+    # 整份未填 → 明确列为「未纳入」；填了一半 → 报错
+    gold = {}
+    excluded = []
+    filled = 0
+    for rep in sorted(by_rep):
+        rec = by_rep[rep]
+        if len(rec) == len(MAXSCORE):
+            gold[rep] = {"items": rec,
+                         "total": round(sum(v["score"] for v in rec.values()), 1)}
+            filled += len(rec)
+        elif len(rec) == 0:
+            excluded.append(rep)
+        else:
+            problems.append(f"{rep}：只填了 {len(rec)}/{len(MAXSCORE)} 项，"
+                            f"半份报告不能进 gold（要么全填，要么整份空着）")
+
+    print(f"完整填写 {filled} 项（{len(gold)} 份报告）")
+    if excluded:
+        print(f"未纳入 {len(excluded)} 份（整份未填）：{excluded}")
     if problems:
         print(f"\n发现 {len(problems)} 个问题，未生成 gold.json：")
         for p in problems[:20]:
@@ -111,8 +124,8 @@ def main():
         if len(problems) > 20:
             print(f"  …… 还有 {len(problems)-20} 条")
         sys.exit(1)
-    if filled < expected:
-        print(f"还有 {expected-filled} 项没填完，拒绝生成（半份 gold 会让评测失真）")
+    if not gold:
+        print("没有任何一份报告完整填写，拒绝生成。")
         sys.exit(1)
 
     seal = read_seal(wb)
@@ -126,17 +139,16 @@ def main():
         "independent": seal.get("是否独立完成（未与主程讨论）") or "",
         "no_ai_reference": seal.get("是否全程未参考 AI 评分") or "",
         "rubric": MAXSCORE,
+        "excluded_reports": excluded,
         "reports": gold,
     }
     json.dump(data, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 
-    totals = {k: round(v["total"], 1) for k, v in sorted(gold.items())}
     print(f"\n✅ 已生成 {OUT}")
-    print("各报告人工总分：")
-    for k, v in totals.items():
-        print(f"   {k}: {v}")
-    vals = list(totals.values())
-    print(f"\n最高 {max(vals)} 最低 {min(vals)} 极差 {max(vals)-min(vals)}")
+    for k, v in sorted(gold.items()):
+        print(f"   {k}: {v['total']}")
+    vals = [v["total"] for v in gold.values()]
+    print(f"\n最高 {max(vals)} 最低 {min(vals)} 极差 {round(max(vals)-min(vals),1)}")
     if seal.get("是否独立完成（未与主程讨论）") != "是":
         print("\n⚠ 封存记录里「是否独立完成」不是「是」——这份 gold set 的公信力会受质疑，请确认。")
 

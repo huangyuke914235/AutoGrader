@@ -176,7 +176,10 @@
 </table>
 
 <h2>自评测结果</h2>
-<p class="sub">我们的准确率不由自己宣布，而由<strong>独立封存的人工评分</strong>检验：gold set 由非主程成员独立打分，调优期间全程封存，最后才解封评测。</p>
+<p class="sub">10 份报告由<strong>非主程成员独立人工打分</strong>（gold set）：打分期间不看系统结果、不与主程讨论，完成后封存，直到评测当天才解封。</p>
+<p style="font-size:14px;color:var(--tx2);margin-top:10px">
+解封后第一次跑分，MAE 是 <strong>31.67 分</strong>——9 份里 8 份被系统性低估。顺着这个单向偏差查下去，发现判定阶段只把报告的 top-4 章节、每章截断 2500 字送进模型，<strong>模型实际只看到全文的 7%~11%</strong>，代码和结果表格基本全丢。这是纯工程缺陷，与 prompt 无关。<br>
+改成自适应全文后 MAE 降到 13.33（<a href="https://github.com/huangyuke914235/AutoGrader/blob/main/docs/bugfix-%E4%B8%8A%E4%B8%8B%E6%96%87%E4%B8%A2%E5%A4%B1.md">完整排查记录</a>）。<strong>我们之后没有为降低这个数字改动过任何 prompt</strong>——那等于对着答案改答案。</p>
 <div class="cards">
   <div class="card"><div class="k">平均绝对误差 MAE</div><div class="v" id="m1">—</div></div>
   <div class="card"><div class="k">误差 ≤5 分占比</div><div class="v" id="m2">—</div></div>
@@ -209,7 +212,7 @@ document.getElementById('videoLink').href = VIDEO_URL;
 var CASES = ["S02", "S03", "S04"];
 
 /* ====== TODO：自评测数字，D6 跑完 benchmark 后填 ====== */
-var METRICS = {mae: null, acc: null, trace: null};
+var METRICS = {mae: 13.33, acc: 22.2, trace: 95.1};
 
 var sel = document.getElementById('caseSel');
 CASES.forEach(function(c){

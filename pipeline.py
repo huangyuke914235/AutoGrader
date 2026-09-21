@@ -42,8 +42,10 @@ def stage_rubric(raw_rubric: str, course_hint: str = "") -> Rubric:
 
 # ---------- A：证据锚定判定 ----------
 def stage_judge(item: RubricItem, sections, full_text: str, top_k: int = 4) -> ItemJudgement:
-    picked = P.retrieve(sections, item.positive_signals, top_k=top_k)
-    ctx = "\n\n".join(f"[{s.id}] {s.title}\n{s.text[:2500]}" for s in picked)
+    # 自适应上下文：≤40000 字给全文，超长才走召回。
+    # 这里必须用全文——实测 retrieve(top_k=4)+每章 2500 截断会让模型只看到报告 7%~11% 的内容，
+    # 导致大量假阴性 miss（代码/表格/截图类内容基本全丢）。详见 docs/bugfix-上下文丢失.md
+    ctx, _is_full = P.build_context(sections, full_text, item.positive_signals, top_k=top_k)
 
     user = (f"评分点：{item.name}\n"
             f"判定标准：{item.criteria}\n"
@@ -93,8 +95,7 @@ def stage_consistency(item: RubricItem, j: ItemJudgement, sections, full_text: s
                       threshold: float = 0.7) -> ItemJudgement:
     if j.confidence >= threshold and j.verdict == "hit":
         return j
-    picked = P.retrieve(sections, item.positive_signals, top_k=4)
-    ctx = "\n\n".join(f"[{s.id}] {s.title}\n{s.text[:2500]}" for s in picked)
+    ctx, _is_full = P.build_context(sections, full_text, item.positive_signals, top_k=6)
     user = (f"评分点：{item.name}\n判定标准：{item.criteria}\n\n"
             f"报告相关片段：\n{ctx}")
     try:

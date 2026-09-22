@@ -1,0 +1,2 @@
+# 开发/测试依赖（运行应用本身只需要 requirements.txt）
+pytest>=8.0

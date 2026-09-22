@@ -1,28 +1,34 @@
 # -*- coding: utf-8 -*-
-"""D2 生死线 · 最小链路稳定性测试
+"""稳定性测试：同一份报告、同一套评分点，连跑 N 次看结果稳不稳
 
 用法：
-    source .venv/Scripts/activate
-    python tools/stability_test.py            # 默认 10 次
-    python tools/stability_test.py 20         # 跑 20 次
+    python tools/stability_test.py            # 默认 10 次（单评分点，省额度）
+    python tools/stability_test.py 20 --full  # 20 次，用完整 5 项评分点
+
+为什么改成走完整 pipeline：
+    旧版本只调用一次模型、只测一个评分点，绕过了 stage_judge 的证据校验与降级逻辑，
+    测出来的「稳定」不能代表真实产品行为。现在走 run_grading，统计 verdict 与 score 的波动。
 
 判定标准（写在 02 技术执行步骤里，不许放宽）：
-    同一输入连跑 N 次 -> 合法 JSON 率 >= 90%，且 quote 原文精确匹配率 >= 90%
+    同一输入连跑 N 次 -> 有效判定率 >= 90%，且引用原文精确匹配率 >= 90%
+    另外记录：判定稳定率（多数派占比）、分数极差与标准差
 """
 import sys
 import os
+import json
 import time
+import statistics
 import collections
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import parser as P
-import prompts
-from models import RubricItem, ItemJudgement
-from llm import call_json, verify_evidence, get_env, get_stats
+from models import Rubric, RubricItem
+from pipeline import run_grading
+from llm import get_env, get_stats
 
-SAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                           "data", "samples")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SAMPLES_DIR = os.path.join(ROOT, "data", "samples")
 
 # 手写的评分点（故意选一个有明确原文依据的，方便检验 quote 能否匹配）
 TEST_ITEM = RubricItem(
@@ -35,101 +41,113 @@ TEST_ITEM = RubricItem(
 )
 
 
+FULL_ITEMS = [
+    RubricItem(id="r1", name="实验目的明确", criteria="开头明确写出本次实验的目的与要掌握的能力",
+               max_score=15, positive_signals=["实验目的", "掌握", "目的"]),
+    RubricItem(id="r2", name="环境与步骤", criteria="写清实验环境配置与可复现的操作步骤",
+               max_score=20, positive_signals=["环境", "步骤", "安装", "配置"]),
+    RubricItem(id="r3", name="核心实现", criteria="给出核心代码、模型结构或关键实现说明",
+               max_score=25, positive_signals=["代码", "实现", "算法", "结构"]),
+    RubricItem(id="r4", name="结果与数据", criteria="给出运行结果、截图、表格或实验数据",
+               max_score=20, positive_signals=["结果", "输出", "截图", "数据"]),
+    RubricItem(id="r5", name="分析与总结", criteria="对结果进行分析讨论，并有总结或心得",
+               max_score=20, positive_signals=["分析", "总结", "心得", "结论"]),
+]
+
+
 def load(sample="S02.txt"):
-    path = os.path.join(SAMPLES_DIR, sample)
-    full = open(path, encoding="utf-8").read()
-    return full, P.split_sections(full)
-
-
-def build_user(item, sections, full_text):
-    picked = P.retrieve(sections, item.positive_signals, top_k=4)
-    ctx = "\n\n".join(f"[{s.id}] {s.title}\n{s.text[:2500]}" for s in picked)
-    return (f"评分点：{item.name}\n判定标准：{item.criteria}\n满分：{item.max_score}\n"
-            f"命中特征：{'、'.join(item.positive_signals)}\n\n"
-            f"报告相关片段：\n{ctx}")
+    return P.parse_file(os.path.join(SAMPLES_DIR, sample))
 
 
 def main():
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+    args = [a for a in sys.argv[1:]]
+    n = 10
+    for a in args:
+        if a.isdigit():
+            n = int(a)
+    use_full = "--full" in args
+    items = FULL_ITEMS if use_full else [TEST_ITEM]
+
     full, sections = load()
     print(f"样本：S02.txt  {len(full)} 字，切出 {len(sections)} 个章节")
-    print(f"模型：{get_env('LLM_MODEL')}")
-    print(f"将对同一个评分点判定 {n} 次\n" + "=" * 62)
+    print(f"模型：{get_env('LLM_MODEL')}   评分点：{len(items)} 个"
+          f"{'（完整 5 项）' if use_full else '（单点评测，加 --full 可跑完整 5 项）'}")
+    print(f"将完整跑 pipeline {n} 次\n" + "=" * 66)
 
-    user = build_user(TEST_ITEM, sections, full)
-    ok_json = quote_ok = retry_ok = 0
-    verdicts = collections.Counter()
-    confs, times, fails = [], [], []
-    samples_out = []
-
+    runs, fails, times = [], [], []
     for i in range(1, n + 1):
         t0 = time.time()
         try:
-            j = call_json(prompts.S2_JUDGE, user, ItemJudgement)
-            ok_json += 1
-            verdicts[j.verdict] += 1
-            confs.append(j.confidence)
-            hit = verify_evidence(j, full)
-            if hit:
-                quote_ok += 1
-            else:
-                # 触发一次驳回重跑（这是 pipeline 里的真实逻辑）
-                ru = user + ("\n\n【上一次判定被驳回】quote 无法在原文中逐字匹配，"
-                             "必须原样复制片段原句；找不到依据就判 miss。")
-                try:
-                    j2 = call_json(prompts.S2_JUDGE, ru, ItemJudgement)
-                    if verify_evidence(j2, full):
-                        retry_ok += 1
-                except Exception:
-                    pass
+            res = run_grading(full, sections, "", report_id="S02",
+                              rubric=Rubric(items=[x.model_copy(deep=True) for x in items]),
+                              enable_recheck=False)
             el = time.time() - t0
             times.append(el)
-            top = (j.evidence[0].quote[:26] if j.evidence else "")
-            print(f"  {i:>2}/{n}  {j.verdict:<8} {j.score:>5.1f}分  置信{j.confidence:.2f}  "
-                  f"证据{'✓' if hit else '✗'}  {el:>5.1f}s  「{top}」")
-            if i <= 3:
-                samples_out.append({"verdict": j.verdict, "score": j.score,
-                                    "reason": j.reason,
-                                    "evidence": [e.quote for e in j.evidence]})
+            runs.append({j.rubric_item_id: (j.verdict, j.score,
+                                            [e.quote for e in j.evidence])
+                         for j in res.judgements})
+            print(f"  {i:>2}/{n}  总分 {res.total:>5.1f}  "
+                  + " ".join(f"{j.rubric_item_id}:{j.verdict[:4]}"
+                             for j in res.judgements)
+                  + f"  {el:>5.1f}s")
         except Exception as e:
-            fails.append(str(e)[:120])
-            print(f"  {i:>2}/{n}  调用失败：{str(e)[:90]}")
+            fails.append(f"{type(e).__name__}: {str(e)[:100]}")
+            print(f"  {i:>2}/{n}  失败：{str(e)[:80]}")
 
-    print("=" * 62)
-    nj = max(ok_json, 1)
-    print(f"合法 JSON 率      ：{ok_json}/{n} = {ok_json/n*100:.0f}%   （标准 >= 90%）")
-    print(f"证据首次匹配率    ：{quote_ok}/{nj} = {quote_ok/nj*100:.0f}%   （标准 >= 90%）")
-    print(f"驳回重跑后救回    ：{retry_ok} 次 -> 最终有效证据率 "
-          f"{(quote_ok+retry_ok)/nj*100:.0f}%")
-    if confs:
-        print(f"置信度均值        ：{sum(confs)/len(confs):.2f}")
+    print("=" * 66)
+    nr = len(runs)
+    if not nr:
+        print("全部失败，无法评估稳定性。")
+        return
+
+    # 引用匹配率：把每次跑出来的引用拿回原文逐字比对
+    checked = ok_q = 0
+    for r in runs:
+        for _iid, (_v, _s, quotes) in r.items():
+            for q in quotes:
+                checked += 1
+                if len(q) >= 6 and q in full:
+                    ok_q += 1
+    quote_rate = ok_q / checked if checked else 0.0
+
+    # 判定稳定率：每个评分点上，多数派 verdict 占的比例
+    stab, score_stats = {}, {}
+    for iid in items:
+        vs = [r[iid][0] for r in runs if iid in r]
+        ss = [r[iid][1] for r in runs if iid in r]
+        if not vs:
+            continue
+        stab[iid] = (max(collections.Counter(vs).values()) / len(vs), dict(collections.Counter(vs)))
+        score_stats[iid] = {"score_range": round(max(ss) - min(ss), 1),
+                            "score_stdev": round(statistics.pstdev(ss), 2) if len(ss) > 1 else 0.0}
+    avg_stab = sum(v[0] for v in stab.values()) / len(stab) if stab else 0.0
+
+    print(f"有效运行率        ：{nr}/{n} = {nr/n*100:.0f}%   （标准 >= 90%）")
+    print(f"引用原文匹配率    ：{ok_q}/{checked} = {quote_rate*100:.0f}%   （标准 >= 90%）")
+    print(f"判定稳定率（平均）：{avg_stab*100:.1f}%")
+    for iid, (rate, dist) in stab.items():
+        print(f"    {iid}: {rate*100:>5.1f}%  {dist}  "
+              f"分数极差 {score_stats[iid]['score_range']}  "
+              f"标准差 {score_stats[iid]['score_stdev']}")
     if times:
         print(f"单次耗时          ：均值 {sum(times)/len(times):.1f}s，合计 {sum(times):.0f}s")
-    print(f"判定分布          ：{dict(verdicts)}")
-    if fails:
-        print(f"失败 {len(fails)} 次：{fails[:2]}")
-
     st = get_stats()
     print(f"Token 消耗        ：{st['tokens']}")
-    print("=" * 62)
-    jr = (quote_ok + retry_ok) / nj * 100
-    verdict = "通过 ✅ 继续 AutoGrader" if (ok_json / n >= 0.9 and jr >= 0.9) \
-        else "未达标 ⚠ 按纪律应于明早更换备选选题"
-    print(f"生死线判定：{verdict}")
+    if fails:
+        print(f"失败 {len(fails)} 次：{fails[:2]}")
+    print("=" * 66)
+    print("生死线判定：" + ("通过 ✅" if (nr / n >= 0.9 and quote_rate >= 0.9) else "未达标 ⚠"))
 
-    # 留痕
-    os.makedirs("docs", exist_ok=True)
+    os.makedirs(os.path.join(ROOT, "docs"), exist_ok=True)
     log = {
-        "date": time.strftime("%Y-%m-%d %H:%M"), "runs": n,
-        "valid_json_rate": round(ok_json / n, 3),
-        "quote_match_rate": round(quote_ok / nj, 3),
-        "rescued_by_retry": retry_ok,
-        "final_evidence_rate": round(jr / 100, 3),
-        "verdicts": dict(verdicts), "tokens": st["tokens"],
-        "samples": samples_out,
+        "date": time.strftime("%Y-%m-%d %H:%M"), "runs": n, "items": len(items),
+        "valid_run_rate": round(nr / n, 3),
+        "quote_match_rate": round(quote_rate, 3),
+        "verdict_stability_avg": round(avg_stab, 3),
+        "verdict_stability": {k: round(v[0], 3) for k, v in stab.items()},
+        "score_stats": score_stats, "tokens": st["tokens"], "fails": fails,
     }
-    with open("docs/stability_log.json", "w", encoding="utf-8") as f:
-        import json
+    with open(os.path.join(ROOT, "docs", "stability_log.json"), "w", encoding="utf-8") as f:
         json.dump(log, f, ensure_ascii=False, indent=2)
     print("结果已写入 docs/stability_log.json（作为开发过程留痕）")
 

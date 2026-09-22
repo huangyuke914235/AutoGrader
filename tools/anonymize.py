@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
-"""
-实验报告脱敏（v2 · 文本级脱敏）
+"""实验报告脱敏（v3 · 文本级脱敏，配置外置）
 
 用法：
-    source .venv/Scripts/activate
-    python tools/anonymize.py
+    python tools/anonymize.py                       # 读 tools/sources.local.json
+    python tools/anonymize.py --sources 我的清单.json  # 指定别的配置文件
+
+为什么配置必须外置：
+    样本清单里包含**真实姓名、学号和本机目录结构**，一旦写进脚本就会被 git 跟踪，
+    随之进入公开仓库——这是本项目踩过的最严重的一次隐私事故（2026-09-22 自查发现）。
+    现在脚本里只留占位符，真实清单放在 `tools/sources.local.json`，
+    该文件已加入 .gitignore，永远不提交。
 
 设计原则（隐私优先）：
 - 原始文件只在本地 data/raw/（已 gitignore），**绝不提交**
@@ -12,37 +17,42 @@
 - 本项目流水线只用纯文本，不需要原文件，这样最安全
 
 做什么：
-1. 把配置好的原始报告复制到 data/raw/
+1. 从本地配置读取样本清单（支持 desktop_root / sources / known_names）
 2. 提取纯文本
 3. 文本级脱敏：学号 / 姓名 / 班级 / 电话 / 邮箱 / 已知姓名
-4. 输出到 data/samples/S01.txt ... 并生成 meta.json
+4. 输出到 data/samples/S01.txt ... 并生成 meta.json（只记脱敏后的文件名，不记原路径）
 5. 扫描残留敏感信息并报告
 """
+import argparse
 import os
 import re
 import json
 import shutil
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DESKTOP = os.path.expanduser("~/Desktop")
 RAW = os.path.join(ROOT, "data", "raw")
 SAMPLES = os.path.join(ROOT, "data", "samples")
+DEFAULT_CFG = os.path.join(ROOT, "tools", "sources.local.json")
+EXAMPLE_CFG = os.path.join(ROOT, "tools", "sources.local.example.json")
 
-# ====== TODO: 需要增删样本就改这个列表 ======
-SOURCES = [
-    "Java/202601-JavaPD-课程实验1-2025150266-黄宇科.pdf",
-    "Java/深圳大学《Java程序设计》课程实验1 完整报告.docx",
-    "nlp小测2/RNN字符级文本生成_提交材料/RNN字符级文本生成实验报告.docx",
-    "nlp期末/实验报告_对话问答回避检测与跨场景迁移分析_已完成.docx",
-    "数据库/实验报告1_SQL的DDL语言和单表查询_已完成.docx",
-    "数据库/实验1&2数据库应用实验（vastbase）.docx",
-    "三维智能导论/树/2099154099张三Homework1.docx",
-    "数据库/报告渲染QA3/report.pdf",
-    "nlp期末/report_render_1/report.pdf",
-    "nlp小测2/_work/report_final.pdf",
-]
+# 脱敏规则与「已知姓名」一样，全部来自本地配置；这里只保留空默认值
+SOURCES = []
+KNOWN_NAMES = []
 
-KNOWN_NAMES = ["黄宇科", "张三"]   # TODO: 若样本里出现你的姓名，加到这里
+
+def load_config(path):
+    """读取本地样本清单。配置不存在时给出明确指引，绝不回退到内置的真实路径。"""
+    if not os.path.exists(path):
+        print(f"找不到样本清单配置：{path}")
+        print("请把 tools/sources.local.example.json 复制为 tools/sources.local.json，")
+        print("填入你自己机器上的样本相对路径与已知姓名。该文件已在 .gitignore 中，不会被提交。")
+        raise SystemExit(1)
+    with open(path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    return (cfg.get("desktop_root") or os.path.expanduser("~/Desktop"),
+            list(cfg.get("sources") or []),
+            list(cfg.get("known_names") or []))
+
 
 PATTERNS = [
     ("学号数字", re.compile(r"\b(?:19|20)\d{8,9}\b"), "【学号】"),
@@ -55,7 +65,7 @@ PATTERNS = [
     ("QQ微信", re.compile(r"(QQ|微信|WeChat)\s*[:：]\s*\S{2,}"), "\\1：【已脱敏】"),
 ]
 
-# 注意：CHECKERS 要能区分"残留的真信息"与"我们自己写的占位符"，否则会一直误报
+# CHECKERS 要能区分「残留的真信息」与「我们自己写的占位符」，否则会一直误报
 CHECKERS = {
     "疑似学号": re.compile(r"\b(?:19|20)\d{8,9}\b"),
     "疑似手机": re.compile(r"\b1[3-9]\d{9}\b"),
@@ -82,42 +92,49 @@ def extract_text(path):
     return ""
 
 
-def redact(text):
+def redact(text, known_names):
     hits = {}
     for label, pat, repl in PATTERNS:
         found = pat.findall(text)
         if found:
             hits[label] = len(found)
             text = pat.sub(repl, text)
-    for nm in KNOWN_NAMES:
+    for nm in known_names:
         c = text.count(nm)
         if c:
-            hits[f"已知姓名({nm})"] = c
+            hits[f"已知姓名×{c}"] = c     # 只记数量，不把姓名本身写进 meta
             text = text.replace(nm, "【姓名】")
-    # 清理多余空白，保留段落
     text = re.sub(r"[ \t]{3,}", "  ", text)
     text = re.sub(r"\n{4,}", "\n\n\n", text)
     return text.strip(), hits
 
 
 def main():
+    ap = argparse.ArgumentParser(description="实验报告脱敏（配置外置，不写真实路径进源码）")
+    ap.add_argument("--sources", default=DEFAULT_CFG, help="本地样本清单 JSON（不提交）")
+    args = ap.parse_args()
+
+    desktop_root, sources, known_names = load_config(args.sources)
+    if not sources:
+        print(f"配置里 sources 为空。请参考 {os.path.basename(EXAMPLE_CFG)} 填写。")
+        raise SystemExit(1)
+
     os.makedirs(RAW, exist_ok=True)
     os.makedirs(SAMPLES, exist_ok=True)
 
     meta = []
     idx = 0
     print("=" * 66)
-    for rel in SOURCES:
-        src = os.path.join(DESKTOP, rel)
+    for rel in sources:
+        src = os.path.join(desktop_root, rel)
         if not os.path.exists(src):
-            print(f"  [跳过] 找不到 {rel}")
+            print(f"  [跳过] 找不到 {os.path.basename(rel)}")
             continue
         idx += 1
         anon = f"S{idx:02d}"
         ext = os.path.splitext(rel)[1].lower()
 
-        # 原文件只留本地
-        shutil.copy2(src, os.path.join(RAW, anon + ext))
+        shutil.copy2(src, os.path.join(RAW, anon + ext))   # 原文件只留本地
 
         raw_text = extract_text(src)
         if len(raw_text.strip()) < 100:
@@ -125,17 +142,17 @@ def main():
             idx -= 1
             continue
 
-        clean, hits = redact(raw_text)
+        clean, hits = redact(raw_text, known_names)
         out = os.path.join(SAMPLES, anon + ".txt")
         with open(out, "w", encoding="utf-8") as f:
             f.write(clean)
 
-        # 残留检查
         rest = {k: len(v.findall(clean)) for k, v in CHECKERS.items() if v.findall(clean)}
         hit_str = "、".join(f"{k}×{v}" for k, v in hits.items()) or "无"
         print(f"  {anon}  {len(clean):>6} 字   脱敏:{hit_str}")
         if rest:
             print(f"        ⚠ 残留 -> {'、'.join(f'{k}×{v}' for k, v in rest.items())}")
+        # meta 里只保留脱敏后的文件名（basename），不记录原始目录结构
         meta.append({"report_id": anon, "original": os.path.basename(rel),
                      "chars": len(clean), "redacted": hits, "residual": rest})
 

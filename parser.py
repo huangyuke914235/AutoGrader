@@ -104,10 +104,28 @@ def split_sections(full_text: str) -> list:
         if merged and len(s.text) < MIN_SECTION_CHARS:
             prev = merged[-1]
             prev.text = prev.text + "\n" + s.text
-            prev.char_end = prev.char_end + len(s.text) + 1
         else:
             merged.append(s)
-    return merged
+    # 合并后必须按**真实位置**重算偏移：旧实现只是长度累加，
+    # 会让 char_end 与真实引用位置对不上（P1-3）
+    return recompute_offsets(merged, full_text)
+
+
+def recompute_offsets(sections, full_text: str):
+    """按各段文本在全文中的真实位置重算 char_start / char_end"""
+    pos = 0
+    for s in sections:
+        if not s.text:
+            s.char_start = pos
+            s.char_end = pos
+            continue
+        i = full_text.find(s.text, pos)
+        if i < 0:                 # 极端情况（文本被改写）退化为顺序推进，不做假偏移
+            i = pos
+        s.char_start = i
+        s.char_end = i + len(s.text)
+        pos = s.char_end
+    return sections
 
 
 def _fallback_chunks(full_text: str) -> list:
@@ -133,17 +151,54 @@ def extract_text(path: str) -> str:
         doc.close()
         return text
     if ext == ".docx":
+        # 按文档 XML 的真实顺序读段落与表格（旧实现把表格全追加到文末，破坏原文顺序）
         import docx
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
         d = docx.Document(path)
-        blocks = [p.text for p in d.paragraphs]
-        for tb in d.tables:
-            for row in tb.rows:
-                blocks.append(" | ".join(c.text.strip() for c in row.cells))
+        blocks = []
+        for child in d.element.body.iterchildren():
+            tag = child.tag.split("}")[-1]
+            if tag == "p":
+                blocks.append(Paragraph(child, d).text)
+            elif tag == "tbl":
+                tb = Table(child, d)
+                for row in tb.rows:
+                    blocks.append(" | ".join(c.text.strip() for c in row.cells))
         return "\n".join(blocks)
     if ext in (".txt", ".md"):
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
     raise ValueError(f"暂不支持的文件类型：{ext}（只支持 pdf / docx / txt / md）")
+
+
+SHORT_TEXT_CHARS = 200        # 低于此字数基本可以判定为扫描件/图片型报告
+
+
+def inspect_text(full_text: str, n_sections: int = 0, pages: int = 0) -> dict:
+    """解析体检：把「这份报告我们能读到什么、读不到什么」明确说出来。
+
+    绝不能静默地把一份扫描件当成正常报告评出分数——那是最坏的一种错误。
+    """
+    warnings = []
+    n = len(full_text or "")
+    if n == 0:
+        warnings.append("未提取到任何文本：无法评阅，请确认文件不是空文件")
+    elif n < SHORT_TEXT_CHARS:
+        warnings.append(f"正文仅 {n} 字，疑似扫描件/图片型报告；"
+                        f"本项目不做 OCR，图片与截图中的内容不可见，判定可能严重偏低")
+    if n > FULL_TEXT_LIMIT:
+        warnings.append(f"正文 {n} 字超过 {FULL_TEXT_LIMIT} 字上限，判定将改用关键词召回模式，"
+                        f"可能漏掉未被召回的内容，相关判定建议人工复核")
+    if n_sections == 0 and n:
+        warnings.append("未能切分出任何章节，判定将基于整篇文本，证据定位可能不准")
+    return {
+        "chars": n,
+        "sections": n_sections,
+        "pages": pages,
+        "coverage": "full" if 0 < n <= FULL_TEXT_LIMIT else ("empty" if n == 0 else "retrieved"),
+        "warnings": warnings,
+    }
 
 
 def canonical(text: str) -> str:

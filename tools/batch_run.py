@@ -41,21 +41,29 @@ ITEMS = [
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--no-recheck", action="store_true",
+                    help="关闭 G 阶段复核（结果文件里会明确记录，不能假装跑过）")
+    args = ap.parse_args()
+    enable_recheck = not args.no_recheck
+
     meta_path = os.path.join(ROOT, "data", "samples", "meta.json")
     meta = json.load(open(meta_path, encoding="utf-8"))
     rub = Rubric(items=ITEMS)
     out = []
     skipped = []
+    failed = []
 
     for m in meta:
         rid = m["report_id"]
         if m.get("chars", 0) > MAX_CHARS:
-            skipped.append((rid, m["chars"]))
+            skipped.append({"report_id": rid, "chars": m["chars"]})
             print(f"{rid} 跳过（{m['chars']} 字 > {MAX_CHARS}，超长会触发检索召回，可能产生假阴性）")
             continue
         full, secs = P.parse_file(os.path.join(ROOT, "data", "samples", rid + ".txt"))
         try:
-            res = run_grading(full, secs, "", report_id=rid, rubric=rub, enable_recheck=False)
+            res = run_grading(full, secs, "", report_id=rid, rubric=rub,
+                              enable_recheck=enable_recheck)
             details = []
             for j in res.judgements:
                 details.append({
@@ -64,30 +72,56 @@ def main():
                     "s": j.score,
                     "confidence": j.confidence,
                     "needs_review": j.needs_review,
+                    "system_error": j.system_error,
                     "evidence": [e.quote for e in j.evidence],
                     # 被原文校验剔除的引用也要留档：可溯源率必须按「模型原始产出」算，
                     # 只统计存活下来的引用会让这个数字虚高
                     "dropped": list(getattr(j, "dropped_quotes", []) or []),
                 })
-            out.append({"report_id": rid, "total": res.total, "chars": m["chars"],
-                        "name": str(m.get("original", ""))[:30], "details": details})
+            out.append({
+                "report_id": rid, "total": res.total, "ai_total": res.ai_total,
+                "chars": m["chars"], "name": str(m.get("original", ""))[:30],
+                "elapsed_sec": res.elapsed_sec, "details": details,
+                "run_info": json.loads(res.run_info.model_dump_json()) if res.run_info else {},
+            })
             print(f"{rid}  {res.total:>5.1f} 分  {res.elapsed_sec:>5.1f}s  {m.get('original','')[:30]}")
         except Exception as e:
+            failed.append({"report_id": rid, "error": f"{type(e).__name__}: {e}"})
             print(f"{rid} 失败：{str(e)[:100]}")
 
     tot = [o["total"] for o in out]
     print("\n=== 汇总 ===")
     if tot:
-        print(f"参评 {len(out)} 份，分数分布 {sorted(round(t,1) for t in tot)}")
-        print(f"最高 {max(tot)} 最低 {min(tot)} 极差 {max(tot)-min(tot)}")
-        print("能否区分好坏：", "能 ✅" if max(tot)-min(tot) >= 15 else "不能 ⚠ 判定过于一律")
+        print(f"参评 {len(out)} 份，分数分布 {sorted(round(t, 1) for t in tot)}")
+        print(f"最高 {max(tot)} 最低 {min(tot)} 极差 {max(tot) - min(tot)}")
+        print("能否区分好坏：", "能 ✅" if max(tot) - min(tot) >= 15 else "不能 ⚠ 判定过于一律")
     if skipped:
-        print(f"跳过 {len(skipped)} 份（超长）：{[s[0] for s in skipped]}")
+        print(f"跳过 {len(skipped)} 份（超长）：{[s['report_id'] for s in skipped]}")
+    if failed:
+        print(f"失败 {len(failed)} 份：{[f['report_id'] for f in failed]}")
 
     os.makedirs(os.path.join(ROOT, "data", "results"), exist_ok=True)
-    p = os.path.join(ROOT, "data", "results", "batch.json")
-    json.dump(out, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-    print(f"\n结果已写入 {p}")
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    payload = {
+        "version": "v2",
+        "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        "config": {
+            "rubric_type": "fixed_5item",
+            "enable_recheck": enable_recheck,
+            "max_chars": MAX_CHARS,
+            "model": os.getenv("LLM_MODEL", ""),
+            "reports_total": len(meta),
+            "reports_scored": len(out),
+        },
+        "skipped": skipped,
+        "failed": failed,
+        "results": out,
+    }
+    p = os.path.join(ROOT, "data", "results", f"batch_v2_{ts}.json")
+    json.dump(payload, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    latest = os.path.join(ROOT, "data", "results", "batch_latest.json")
+    json.dump(payload, open(latest, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    print(f"\n结果已写入 {p}（旧结果未被覆盖）")
 
 
 if __name__ == "__main__":

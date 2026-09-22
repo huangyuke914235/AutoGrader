@@ -32,21 +32,44 @@ E 反馈生成       评语逐条绑定证据，附可执行改进建议
 
 诚实记录：同一输入 10 次中有 2 次判定在 hit / partial 间漂移——这正是 G 阶段存在的理由。
 
-## 快速开始
+> **项目定位**：这是竞赛原型 / 教师辅助初评工具，**不是**可以无人监督直接发布正式成绩的自动评分系统。
+> 系统只产出带证据的初评，最终成绩由教师确认；不支持图片与截图内容（无 OCR）。
+
+## 快速开始（干净环境从零安装）
 
 ```bash
 python -m venv .venv
-source .venv/Scripts/activate        # Windows Git Bash
+source .venv/Scripts/activate        # Windows Git Bash；PowerShell 用 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+pip install -r requirements-dev.txt  # 仅跑测试时需要
+cp .env.example .env                 # 然后填入自己的 key（.env 不提交）
+python tools/test_key.py             # 验证密钥与结构化输出是否可用
+python -m pytest tests/ -q           # 无 key 也能跑，全部通过才算干净
+streamlit run app.py                 # 打开 http://localhost:8501
 ```
 
-在根目录建 `.env`（不要提交）：
+`.env` 内容（也可直接复制 `.env.example`）：
 
 ```
 LLM_API_KEY=sk-xxxx
 LLM_BASE_URL=https://api.deepseek.com/v1
 LLM_MODEL=deepseek-chat
+DEMO_MODE=false
 ```
+
+`DEMO_MODE=true` 时**真的不会**调用模型（代码层拦截，不只是界面提示）；
+需要离线演示请先 `python tools/make_demo.py` 生成演示结果。
+
+## 自动化测试
+
+```bash
+python -m pytest tests/ -q
+```
+
+- 48 项，全部使用 mock，**不需要 API key、不联网**。
+- 覆盖：数据契约与 rubric 校验、证据校验与降级分支、一致性守卫（低置信/复核失败/不一致/分差）、
+  人工改分与导出口径、解析器偏移与解析体检、隐私与 CSV 注入、提示词注入检测。
+- 依赖真实模型的评测请跑 `tools/batch_run.py` + `tools/benchmark.py`（会花钱，结果版本化保存）。
 
 启动：
 
@@ -66,7 +89,8 @@ streamlit run app.py
 ├── llm.py            # 模型调用 + JSON 宽容解析 + 防幻觉闸门
 ├── parser.py         # 报告解析与章节切分（纯确定性代码，不调模型）
 ├── pipeline.py       # 四阶流水线编排
-├── docs/             # GitHub Pages 作品主页 + 离线可看案例 + 两篇故障排查记录
+├── tests/            # pytest 测试（mock，无 key 可跑）
+├── docs/             # GitHub Pages 作品主页 + 离线可看案例 + 三篇故障排查记录
 └── tools/            # 脱敏 / 连通性自检 / 稳定性测试 / gold 打分表 / 批量评测
 ```
 
@@ -84,13 +108,23 @@ streamlit run app.py
 
 ## 故障排查记录
 
-- [docs/bugfix-上下文丢失.md](docs/bugfix-上下文丢失.md) —— 模型只看到报告 7%~11% 内容（MAE 31.67→13.33）
-- [docs/bugfix-反馈生成失败.md](docs/bugfix-反馈生成失败.md) —— 异常被吞 + 模型输出 JSON 不合法
+- [docs/bugfix-上下文丢失.md](docs/bugfix-上下文丢失.md) —— 模型只看到报告 7%~11% 内容（MAE 31.67→20.44）
+- [docs/bugfix-反馈生成失败.md](docs/bugfix-反馈生成失败.md) —— 异常被吞 + 模型输出 JSON 不合法（修后仍偶发，已如实记录）
+- [docs/bugfix-引用匹配与PDF断行.md](docs/bugfix-引用匹配与PDF断行.md) —— 引用匹配不上原文，11 个评分点被误判 0 分（MAE 20.44→7.56）
+- [视频分镜脚本](docs/视频分镜脚本.md) / [社媒过程帖与提交自查](docs/社媒过程帖与提交自查.md)
 
 ## 隐私与数据说明
 
 - 本仓库**不包含**任何原始实验报告。`data/` 目录已在 `.gitignore` 中，原始文件只保留在本地。
 - 主页 `docs/cases/` 中的演示案例已做双重处理：**报告全文脱敏**（学号 / 姓名 / 班级 / 电话 / 邮箱置零残留）+ **正文裁剪为证据片段窗口**（每条证据 ±500 字），不含完整作业原文。
+- 脱敏脚本 `tools/anonymize.py` **不内置任何真实路径与姓名**：样本清单从 `tools/sources.local.json` 读取，
+  该文件已在 `.gitignore` 中（模板见 `tools/sources.local.example.json`）。
+  这是 2026-09-22 自查发现并修复的一次真实隐私事故——**Git 历史里仍留有旧版本，需要另行清理**（见下文）。
+- 上传的文件写入受控临时目录（`data/tmp_uploads/`，UUID 文件名），解析结束即在 `finally` 中删除；
+  `report_id` 为随机值，不参与路径拼接。
+
+> ⚠ **需要人工处理**：仓库早期提交里曾把真实姓名/学号写进 `tools/anonymize.py`。
+> 当前受跟踪文件已清除，但 **Git 历史中仍然存在**，需要时用 `git filter-repo` / BFG 清理并强制推送。
 
 ## 第三方开源库
 

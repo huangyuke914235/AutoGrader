@@ -63,25 +63,25 @@ def main():
     wb = load_workbook(XLSX, data_only=True)   # data_only：读公式的计算结果
     ws = wb["③ 逐项打分"]
 
-    by_rep = {}
+    by_rep = {}        # rep -> 有效行
+    blank_rep = {}     # rep -> 空行数（整份未填的候选）
     problems = []
-    expected = 0
 
     for r in range(2, ws.max_row + 1):
         rep = cell(ws, r, 2)
         iid = cell(ws, r, 3)
         if not rep or not iid:
             continue
-        expected += 1
         mx = MAXSCORE.get(iid)
         score = cell(ws, r, 6)
         verdict = cell(ws, r, 7)
         evidence = cell(ws, r, 8)
         note = cell(ws, r, 9)
-        rec = by_rep.setdefault(rep, {})
 
         if score is None or score == "":
-            problems.append(f"第{r}行 {rep}/{iid}：得分未填")
+            # 空行先记下来：只有「整份都空」才算合法排除，零星空行仍是问题
+            blank_rep[rep] = blank_rep.get(rep, 0) + 1
+            by_rep.setdefault(rep, {})
             continue
         try:
             score = float(score)
@@ -91,12 +91,17 @@ def main():
         if not (0 <= score <= mx):
             problems.append(f"第{r}行 {rep}/{iid}：得分 {score} 超出 0~{mx}")
             continue
-        if verdict and verdict not in VERDICTS:
+        # verdict 必填（文档一直这么要求，旧实现却允许为空）
+        if not verdict:
+            problems.append(f"第{r}行 {rep}/{iid}：判定未填（必须 hit / partial / miss）")
+            continue
+        if verdict not in VERDICTS:
             problems.append(f"第{r}行 {rep}/{iid}：判定 {verdict!r} 不合法")
             continue
 
-        rec[iid] = {"score": score, "verdict": verdict or "",
-                    "evidence": evidence or "", "note": note or ""}
+        by_rep.setdefault(rep, {})[iid] = {
+            "score": score, "verdict": verdict,
+            "evidence": evidence or "", "note": note or ""}
 
     # 整份未填 → 明确列为「未纳入」；填了一半 → 报错
     gold = {}
@@ -109,7 +114,7 @@ def main():
                          "total": round(sum(v["score"] for v in rec.values()), 1)}
             filled += len(rec)
         elif len(rec) == 0:
-            excluded.append(rep)
+            excluded.append(rep)          # 整份空着 = 主动不纳入，合法
         else:
             problems.append(f"{rep}：只填了 {len(rec)}/{len(MAXSCORE)} 项，"
                             f"半份报告不能进 gold（要么全填，要么整份空着）")
@@ -129,6 +134,26 @@ def main():
         sys.exit(1)
 
     seal = read_seal(wb)
+    # 评分者信息必须完整，否则这份 gold set 的公信力无从证明
+    required = {
+        "打分人姓名": seal.get("打分人姓名"),
+        "打分日期": seal.get("打分日期"),
+        "是否独立完成（未与主程讨论）": seal.get("是否独立完成（未与主程讨论）"),
+        "是否全程未参考 AI 评分": seal.get("是否全程未参考 AI 评分"),
+    }
+    for k, v in required.items():
+        if not v:
+            problems.append(f"封存记录缺少「{k}」——无法证明这份 gold 是独立盲评的结果")
+    if required["是否独立完成（未与主程讨论）"] not in (None, "", "是"):
+        problems.append("「是否独立完成」不是「是」，该 gold set 不能用于对外指标")
+    if required["是否全程未参考 AI 评分"] not in (None, "", "是"):
+        problems.append("「是否全程未参考 AI 评分」不是「是」，该 gold set 不能用于对外指标")
+    if problems:
+        print(f"\n发现 {len(problems)} 个问题，未生成 gold.json：")
+        for p in problems[:20]:
+            print("  -", p)
+        sys.exit(1)
+
     data = {
         "_note": "人工 gold set，非主程成员独立打分，生成后封存，禁止手改",
         "created_at": datetime.datetime.now().isoformat(timespec="seconds"),

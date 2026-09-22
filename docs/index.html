@@ -163,7 +163,7 @@
   <div class="step"><div class="t">R 评分点原子化</div><div class="d">自然语言 rubric → 可判定的原子评分点</div></div>
   <div class="step"><div class="t">A 证据锚定判定</div><div class="d">逐点独立判定，必须回引原文</div></div>
   <div class="step"><div class="t">G 一致性守卫</div><div class="d">双跑 + 置信度，低置信转人工</div></div>
-  <div class="step"><div class="t">E 反馈生成</div><div class="d">每条评语绑定证据，可跳转</div></div>
+  <div class="step"><div class="t">E 反馈生成</div><div class="d">基于已定稿判定生成改进建议（评语不附证据，证据在逐项卡片中）</div></div>
 </div>
 <div class="loop"><strong>人在回路贯穿全层：</strong>教师确认评分点 · 覆盖判定并留痕 · 修改 rubric 后全批重算</div>
 
@@ -206,6 +206,17 @@
 （修复后第一轮复测是 10.78 分，当时又发现：正文归一了但引用没归一，多行代码块引用永远匹配不上，
 S07 的"核心实现"因此被判 0 分（32 分 vs 人工 63）。这一处修掉后最终复测为 <strong>7.56 分</strong>，
 S07 回到 65 分。<strong>到此为止我们不再为降低这个数字改动任何东西。</strong>）</p>
+
+<h2>项目定位与能力边界（请务必先读这一节）</h2>
+<div class="card" style="text-align:left">
+<ul style="font-size:14px;line-height:1.9;margin:0;padding-left:20px">
+  <li>这是一个<strong>竞赛原型 / 教师辅助初评工具</strong>，不是可以无人监督直接发布正式成绩的自动评分系统。</li>
+  <li>系统给出的是<strong>带证据的初评</strong>，最终成绩必须由教师确认：界面里每一项都能改分，改分必须填理由并留痕。</li>
+  <li><strong>不支持图片与截图内容</strong>：本项目不做 OCR，扫描件、图片型报告的代码与结果截图不可见，判定会显著偏低（程序会给出明确警告）。</li>
+  <li>单项分目前仍由模型给出，代码负责求和与约束校验：verdict 与 score 明显矛盾时会被标记转人工，<strong>不会静默改分</strong>。</li>
+  <li>系统错误（调用失败等）与学生未做到是两回事，前者会单独标记，<strong>不会算作学生失分</strong>。</li>
+</ul>
+</div>
 
 <h2>团队与开源</h2>
 <p id="teamInfo">

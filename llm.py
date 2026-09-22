@@ -157,6 +157,18 @@ def strip_code_fence(raw: str) -> str:
     return raw.strip()
 
 
+_client_cache = {}
+
+
+def _get_client(timeout: int = 120):
+    """复用 OpenAI 客户端（每次新建会带来不必要的连接开销）"""
+    from openai import OpenAI
+    key = (get_env("LLM_API_KEY"), get_env("LLM_BASE_URL"), timeout)
+    if key not in _client_cache:
+        _client_cache[key] = OpenAI(api_key=key[0], base_url=key[1], timeout=timeout)
+    return _client_cache[key]
+
+
 def call_json(system: str, user: str, schema, temperature: float = 0.0,
               retries: int = 2, timeout: int = 120, backoff: float = 3.0):
     """调用模型并返回校验通过的 schema 实例。
@@ -171,12 +183,14 @@ def call_json(system: str, user: str, schema, temperature: float = 0.0,
     APITimeoutError / RateLimitError / 5xx 都会直接穿透出去，一次抖动就把整阶段打挂，
     而上层又把它吞成一句「生成失败」——线上因此出现过 E 阶段长期失败但查不到原因。
     """
-    from openai import OpenAI
     from pydantic import ValidationError
 
-    client = OpenAI(api_key=get_env("LLM_API_KEY"),
-                    base_url=get_env("LLM_BASE_URL"),
-                    timeout=timeout)
+    # DEMO_MODE 必须真的拦住调用——旧实现只是界面上写一句提示，模型照样会被调用
+    if demo_mode():
+        raise RuntimeError("DEMO_MODE=true：已阻止调用真实模型。"
+                           "如需真实评阅请把 DEMO_MODE 设为 false 并配置密钥。")
+
+    client = _get_client(timeout)      # 复用客户端，不要每次调用都新建
     model = get_env("LLM_MODEL", "deepseek-chat")
 
     last_err = None
@@ -231,43 +245,54 @@ def call_json(system: str, user: str, schema, temperature: float = 0.0,
     raise RuntimeError(f"模型输出连续 {retries+1} 次未通过校验：{last_err}")
 
 
-def verify_evidence(judgement, full_text: str, min_len: int = 6) -> bool:
+def split_evidence(judgement, full_text: str):
+    """把引用逐条分类：合格 / 不合格，同时把合格引用的形态归一（便于界面高亮）。
+
+    归一必须**两侧对称**：正文解析时做过空白归一，引用也要用同一套规则归一后再比，
+    否则多行代码块的引用永远匹配不上（S07 的「核心实现」曾因此被判 0 分）。
+    """
+    from parser import canonical as _canon
+    from models import QUOTE_MIN_LEN, QUOTE_MAX_LEN
+
+    good, dropped = [], []
+    for ev in judgement.evidence:
+        q = _canon(ev.quote or "")
+        if QUOTE_MIN_LEN <= len(q) <= QUOTE_MAX_LEN and q in full_text:
+            ev.quote = q
+            good.append(ev)
+        else:
+            dropped.append(q)
+    return good, dropped
+
+
+def verify_evidence(judgement, full_text: str) -> bool:
     """核弹级校验：AI 给的每一条引用必须在原文中逐字存在。
 
     这是「让执行者之外的东西来判定」的工程实现。
     返回 False 时必须在 pipeline 里触发重跑，而不是放宽规则。
 
-    2026-09-22 改为**逐条**判定：不合格的引用被剔除，只要还剩至少一条合格引用，
-    这条判定就成立；一条都不剩才算不通过。
+    逐条判定：不合格的引用被剔除，只要还剩至少一条合格引用，这条判定就成立；
+    一条都不剩才算不通过。（旧实现是「一条不合格 → 整条判定连同其余合格引用一起作废」，
+    实测把 11 个评分点误判成 0 分——那是 bug，不是严格。）
 
-    为什么要改：旧实现是「一条不合格 → 整条判定连同其余合格引用一起作废」。
-    实测一轮评测里有 11 个评分点因此被判成 0 分，而它们其实带着 3~6 条完全合格的引用。
-    这等于在惩罚「引用给得多」的报告——那是 bug，不是严格。
-    （详见 docs/bugfix-引用匹配与PDF断行.md）
-
-    规则本身没有变松：每一条被保留下来的引用，仍然必须在原文中逐字存在。
+    miss 判定不允许携带证据：直接清空。
     """
     if judgement.verdict == "miss":
+        if judgement.evidence:
+            judgement.reason = (judgement.reason or "") + \
+                "（miss 判定不应携带证据，已清空）"
+        judgement.evidence = []
+        judgement.dropped_quotes = []
         return True
+
     if not judgement.evidence:
         return False
 
-    # 正文在解析时已做过空白归一，所以引用也必须用同一套规则归一后再比。
-    # 少了这一步，多行代码块的引用就永远匹配不上（例如 S07/r3 引的 Python 代码）。
-    from parser import canonical as _canon
-
-    good, dropped = [], []
-    for ev in judgement.evidence:
-        q = _canon(ev.quote or "")
-        if len(q) >= min_len and q in full_text:
-            ev.quote = q            # 存归一后的形态，保证详情页高亮能对得上
-            good.append(ev)
-        else:
-            dropped.append(q)
+    good, dropped = split_evidence(judgement, full_text)
 
     if not good:
-        # 一条合格引用都没有：不合格的原样留在 evidence 里（教师界面还能看到模型当时引了什么），
-        # 但**不再记进 dropped_quotes**，否则可溯源率的分母会把同一批引用数两遍。
+        # 一条合格引用都没有：不合格的原样留在 evidence（教师界面还能看到模型当时引了什么），
+        # 但不再记进 dropped_quotes，否则可溯源率的分母会把同一批引用数两遍。
         judgement.dropped_quotes = []
         return False
 
@@ -278,6 +303,71 @@ def verify_evidence(judgement, full_text: str, min_len: int = 6) -> bool:
         judgement.reason = (judgement.reason or "") + \
             f"（另有 {len(dropped)} 条引用未通过原文逐字校验，已剔除：{brief}）"
     return True
+
+
+# verdict 与 score 的合法对应关系（P1-1 的最小方案：不取消模型打分，但检测矛盾）
+SCORE_BANDS = {
+    "hit": (0.70, 1.00),        # hit 至少拿到该点 70% 的分
+    "partial": (0.15, 0.85),
+    "miss": (0.00, 0.00),
+}
+
+
+def normalize_judgement(judgement, item, full_text: str):
+    """统一的判定规范化入口 —— 所有分支都必须过这一道，不再各写各的。
+
+    做的四件事：
+    1. verdict 非法 → 归为 partial 并标记待复核（不静默丢弃）
+    2. confidence / score 夹到合法区间
+    3. miss → 强制 0 分且无证据；非 miss → 必须至少一条合法证据（否则由调用方降级）
+    4. verdict 与 score 明显矛盾 → 标记待复核并写明原因（**不偷偷改分**）
+
+    返回 (judgement, notes)；notes 是需要写进 reason 的说明。
+    """
+    from models import VERDICTS
+
+    notes = []
+    max_score = float(getattr(item, "max_score", 100) or 100)
+
+    if judgement.verdict not in VERDICTS:
+        notes.append(f"判定值 {judgement.verdict!r} 非法，已归为 partial 并转人工复核")
+        judgement.verdict = "partial"
+        judgement.needs_review = True
+
+    if judgement.confidence is None or isinstance(judgement.confidence, bool):
+        judgement.confidence = 0.0
+    try:
+        judgement.confidence = max(0.0, min(1.0, float(judgement.confidence)))
+    except (TypeError, ValueError):
+        judgement.confidence = 0.0
+        notes.append("confidence 不是数字，已归零并转人工复核")
+        judgement.needs_review = True
+
+    try:
+        judgement.score = max(0.0, min(float(judgement.score), max_score))
+    except (TypeError, ValueError):
+        judgement.score = 0.0
+        notes.append("score 不是数字，已归零并转人工复核")
+        judgement.needs_review = True
+
+    if judgement.verdict == "miss":
+        if judgement.score != 0:
+            notes.append("miss 判定必须是 0 分，已强制归零")
+        judgement.score = 0.0
+        if judgement.evidence:
+            notes.append("miss 判定不应携带证据，已清空")
+        judgement.evidence = []
+
+    # verdict 与 score 是否互相矛盾（只标记，不擅自改分）
+    lo, hi = SCORE_BANDS[judgement.verdict]
+    ratio = judgement.score / max_score if max_score else 0.0
+    if not (lo - 1e-6 <= ratio <= hi + 1e-6):
+        judgement.needs_review = True
+        notes.append(
+            f"判定 {judgement.verdict} 与得分 {judgement.score}/{max_score} 不匹配"
+            f"（该判定应落在 {lo:.0%}~{hi:.0%}），已转人工复核")
+
+    return judgement, notes
 
 
 def locate(section_list, full_text: str, quote: str):

@@ -10,8 +10,11 @@
   tab4 导出   —— 成绩表 CSV / 结果 JSON
 """
 import os
+import re
 import json
 import time
+import uuid
+import tempfile
 import datetime
 
 import streamlit as st
@@ -20,8 +23,48 @@ import parser as P
 import prompts
 import batch_ui
 from models import Rubric, RubricItem
-from pipeline import run_grading, stage_rubric
+from pipeline import (run_grading, stage_rubric, rubric_source_hash,
+                      validate_rubric, RubricError, apply_override,
+                      effective_score, recompute_total, build_export_rows)
 from llm import get_env, demo_mode
+
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
+
+def _safe_display_name(name: str) -> str:
+    """只保留用于展示的安全文件名：去路径、去控制字符、限制长度"""
+    base = os.path.basename(name or "")
+    base = re.sub(r"[\x00-\x1f/\\]", "", base)
+    return base[:60] or "未命名报告"
+
+
+def load_uploaded(up):
+    """上传 -> 解析 -> 删除临时文件。
+
+    report_id 用随机 UUID（不参与任何路径拼接，且不做可预测文件名），
+    原始文件名只保留一个净化后的展示名；临时文件无论成败都在 finally 里删除。
+    """
+    tmp = _save_upload_to_temp(up)
+    try:
+        full_text, sections = P.parse_file(tmp)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError as e:
+            print(f"[warn] 临时上传文件未能删除：{tmp}（{e}）")
+    return full_text, sections, "UP-" + uuid.uuid4().hex[:8], _safe_display_name(up.name)
+
+
+def _save_upload_to_temp(up) -> str:
+    """把上传内容写进受控临时目录，文件名用 UUID，避免路径穿越与同名覆盖"""
+    os.makedirs(TMPDIR, exist_ok=True)
+    ext = os.path.splitext(_safe_display_name(up.name))[1].lower()
+    if ext not in (".pdf", ".docx", ".txt", ".md"):
+        ext = ".txt"
+    path = os.path.join(TMPDIR, f"{uuid.uuid4().hex}{ext}")
+    with open(path, "wb") as f:
+        f.write(up.getbuffer())
+    return path
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 # 本地优先用完整脱敏样本（data/samples，不入库）；云端仓库只有公开裁剪版 samples_demo
@@ -32,7 +75,14 @@ else:
     SAMPLES = os.path.join(ROOT, "samples_demo")
     _SAMPLE_NOTE = "云端演示样本为「证据窗口裁剪版」（与公开案例一致），本地运行请使用完整样本"
 RESULTS = os.path.join(ROOT, "data", "results")
+TMPDIR = os.path.join(ROOT, "data", "tmp_uploads")
 IS_CLOUD = not os.path.isdir(os.path.join(ROOT, "data", "samples"))
+
+
+def _csv_safe(v):
+    """CSV 公式注入防护：以 = + - @ 开头的单元格前面加单引号"""
+    s = "" if v is None else str(v)
+    return "'" + s if s[:1] in ("=", "+", "-", "@") else s
 
 st.set_page_config(page_title="AutoGrader", page_icon="📋", layout="wide")
 
@@ -89,7 +139,7 @@ with st.sidebar:
     st.caption("RAG-E 四阶判定链")
     st.markdown(f"模型：`{get_env('LLM_MODEL','未配置')}`")
     if demo_mode():
-        st.warning("DEMO_MODE 已开启：不会调用真实模型")
+        st.warning("DEMO_MODE 已开启：评阅不会调用真实模型（需先跑 tools/make_demo.py 生成演示结果）")
     st.markdown("---")
     st.markdown("**三条铁律**")
     st.caption("① 分数由代码加总，模型只输出单点判定")
@@ -121,14 +171,17 @@ with tab1:
                 full_text, sections = load_text(pick)
                 report_id = os.path.splitext(pick)[0]
         else:
-            up = st.file_uploader("上传 PDF / DOCX / TXT", type=["pdf", "docx", "txt", "md"])
+            st.warning("上传的报告正文会被发送到本项目配置的模型服务（见侧边栏显示的模型）。"
+                       "**请勿上传含真实姓名/学号的未脱敏作业。**")
+            up = st.file_uploader("上传 PDF / DOCX / TXT（≤ 20MB）",
+                                  type=["pdf", "docx", "txt", "md"])
             if up:
-                os.makedirs(RESULTS, exist_ok=True)
-                tmp = os.path.join(RESULTS, "_upload_" + up.name)
-                with open(tmp, "wb") as f:
-                    f.write(up.getbuffer())
-                full_text, sections = P.parse_file(tmp)
-                report_id = os.path.splitext(up.name)[0]
+                if up.size and up.size > MAX_UPLOAD_BYTES:
+                    st.error(f"文件过大（{up.size/1048576:.1f}MB），上限 20MB。")
+                    full_text, sections, report_id = "", [], ""
+                else:
+                    full_text, sections, report_id, disp = load_uploaded(up)
+                    st.session_state["display_name"] = disp
             else:
                 full_text, sections, report_id = "", [], ""
         if full_text:
@@ -151,15 +204,30 @@ with tab1:
     with col_c:
         st.caption("先生成评分点、确认无误后再评阅 — 这是「人在回路」的第一道关口")
 
+    # P1-2：rubric 是否过期 —— 教师改了评分标准原文或课程背景，旧 rubric 必须失效
+    rub_now = st.session_state.get("rubric")
+    if rub_now is not None:
+        try:
+            want_hash = rubric_source_hash(raw_rubric, course)
+        except Exception:
+            want_hash = ""
+        got_hash = getattr(rub_now, "source_hash", "")
+        if got_hash and want_hash and got_hash != want_hash:
+            st.warning("评分标准/课程背景已经改过，当前评分点是基于**旧文本**生成的。"
+                       "请重新点「① 生成评分点」，否则会沿用过期标准。")
+
     if do_atom and full_text:
         st.session_state["raw_rubric"] = raw_rubric
         with st.spinner("R 阶段：把自然语言评分标准原子化…"):
             try:
                 rub = stage_rubric(raw_rubric, course)
                 st.session_state["rubric"] = rub
+                st.session_state["result"] = None      # 评分点变了，旧结果一并作废
                 st.success(f"已生成 {len(rub.items)} 个评分点（请到「评分点」页确认）")
+            except RubricError as e:
+                st.error(f"评分标准不合法，已拒绝使用：{e}")
             except Exception as e:
-                st.error(f"生成失败：{e}")
+                st.error(f"生成失败：{type(e).__name__}: {e}")
 
     if run and full_text:
         st.session_state["raw_rubric"] = raw_rubric
@@ -192,13 +260,24 @@ with tab2:
         top = st.container()
         with top:
             c1, c2, c3 = st.columns([1, 1, 2])
-            c1.markdown(f"<div class='big'>{res.total}</div><div class='sub'>总分 / 100（由代码加总）</div>",
+            ov_n = len(res.overrides)
+            sub1 = "总分 / 100（由代码加总" + ("，含人工改分）" if ov_n else "）")
+            c1.markdown(f"<div class='big'>{res.total}</div><div class='sub'>{sub1}</div>",
                         unsafe_allow_html=True)
             c2.markdown(f"<div class='big'>{len(res.judgements)}</div><div class='sub'>评分点</div>",
                         unsafe_allow_html=True)
             nr = sum(1 for j in res.judgements if j.needs_review)
-            c3.markdown(f"<div class='big'>{nr}</div><div class='sub'>待人工复核（低置信或两次判定不一致）</div>",
+            syserr = sum(1 for j in res.judgements if j.system_error)
+            c3.markdown(f"<div class='big'>{nr}</div><div class='sub'>"
+                        f"待人工复核（低置信 / 两次不一致 / 分数差距大"
+                        f"{f' / 系统错误 {syserr} 项' if syserr else ''}）</div>",
                         unsafe_allow_html=True)
+            if syserr:
+                st.error(f"有 {syserr} 个评分点因**系统错误**未能判定（不是学生失分），"
+                         f"必须由教师人工给分：见下方逐项卡片里的红色提示。")
+            if ov_n:
+                st.caption(f"已应用 {ov_n} 处人工改分；AI 原始总分 {res.ai_total}，"
+                           f"最终总分 {res.total}。导出文件里两者都会保留。")
 
         all_quotes = [e.quote for j in res.judgements for e in j.evidence]
         L, R = st.columns([1, 1])
@@ -215,23 +294,40 @@ with tab2:
                 j = next((x for x in res.judgements if x.rubric_item_id == item.id), None)
                 if not j:
                     continue
-                with st.expander(f"{item.name}　{j.score}/{item.max_score}", expanded=False):
+                eff = effective_score(res, item.id)
+                ov = next((o for o in res.overrides if o.rubric_item_id == item.id), None)
+                title = f"{item.name}　{eff}/{item.max_score}" + ("　（已人工改分）" if ov else "")
+                with st.expander(title, expanded=False):
                     st.markdown(badge(j.verdict) +
                                 (f"　<font color='#a32d2d'>待复核</font>" if j.needs_review else "") +
                                 f"　置信度 `{j.confidence:.2f}`", unsafe_allow_html=True)
+                    if j.system_error:
+                        st.error(f"**系统错误，非学生失分**：{j.system_error}")
                     st.caption(j.reason)
                     for e in j.evidence:
                         st.markdown(f"> 「{e.quote}」　`{e.section_id}`")
                         if st.button("定位", key=f"loc_{item.id}_{e.char_start}"):
                             st.session_state["active_q"] = e.quote
                             st.rerun()
-                    st.markdown("**人工覆盖**")
-                    ns = st.number_input("改分", 0.0, float(item.max_score), float(j.score),
+
+                    st.markdown("**人工改分（终裁）**")
+                    ns = st.number_input("改分", 0.0, float(item.max_score), float(eff),
                                          step=0.5, key=f"ov_{item.id}")
-                    why = st.text_input("改分理由（留痕用）", key=f"why_{item.id}")
-                    if abs(ns - j.score) > 0.01:
-                        st.warning(f"覆盖记录：{item.name} {j.score} → {ns}"
-                                   + (f"，理由：{why}" if why else "（未填理由）"))
+                    why = st.text_input("改分理由（必填，留痕用）", key=f"why_{item.id}")
+                    if st.button("应用改分", key=f"apply_{item.id}"):
+                        if abs(ns - eff) < 0.01:
+                            st.info("分数没有变化，未应用。")
+                        elif not (why or "").strip():
+                            st.error("改分必须填写理由，否则不留痕——未应用。")
+                        else:
+                            apply_override(res, item.id, float(ns), (why or "").strip())
+                            save_result(res, res.report_id)
+                            st.success(f"已应用：{item.name} {eff} → {ns}，"
+                                       f"总分 {res.total}（AI 原始 {res.ai_total}）")
+                            st.rerun()
+                    if ov:
+                        st.caption(f"覆盖记录：AI {ov.original_score} → 教师 {ov.new_score}"
+                                   f"，理由：{ov.reason}（{ov.created_at}）")
 
         if res.feedback:
             st.markdown("---")
@@ -265,6 +361,14 @@ with tab3:
             c3.caption(it.criteria)
         st.markdown("---")
         st.markdown(f"**合计分值：{round(total,1)}**" + ("　✅" if abs(total - 100) < 0.01 else "　⚠ 不等于 100"))
+        if st.button("校验并应用这套评分点"):
+            try:
+                validate_rubric(rub)
+                st.session_state["result"] = None    # 评分点变了，旧结果作废
+                st.success("校验通过（满分合计 100、id 唯一、分值均为正数），已应用；"
+                           "之前的评阅结果已作废，请重新评阅。")
+            except RubricError as e:
+                st.error(f"校验未通过，未应用：{e}")
 
 # ---------- tab4 导出 ----------
 with tab4:
@@ -273,26 +377,20 @@ with tab4:
         st.info("暂无结果可导出。")
     else:
         import pandas as pd
-        rows = []
-        for it in res.items:
-            j = next((x for x in res.judgements if x.rubric_item_id == it.id), None)
-            if not j:
-                continue
-            rows.append({
-                "评分点": it.name, "判定": j.verdict, "得分": j.score, "满分": it.max_score,
-                "置信度": j.confidence, "待复核": "是" if j.needs_review else "",
-                "理由": j.reason,
-                "证据原文": " | ".join(e.quote for e in j.evidence),
-            })
-        rows.append({"评分点": "总分", "判定": "", "得分": res.total, "满分": 100,
-                     "置信度": "", "待复核": "", "理由": "由代码加总", "证据原文": ""})
+        # 口径统一由 pipeline.build_export_rows 决定（有测试覆盖），这里只做 CSV 安全处理
+        rows = [{k: _csv_safe(v) for k, v in row.items()}
+                for row in build_export_rows(res)]
         df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, use_container_width=True, hide_index=True)
         st.download_button("下载 CSV", df.to_csv(index=False).encode("utf-8-sig"),
                            f"{res.report_id}_评阅结果.csv", "text/csv")
         st.download_button("下载 JSON", res.model_dump_json(ensure_ascii=False, indent=2),
                            f"{res.report_id}.json", "application/json")
-        st.caption(f"结果同时已保存至 data/results/{res.report_id}.json")
+        if res.run_info:
+            with st.expander("本次评分的可审计信息（用于事后复现）"):
+                st.json(json.loads(res.run_info.model_dump_json()))
+        st.caption(f"结果同时已保存至 data/results/{res.report_id}.json"
+                   f"（含 AI 原始分、人工改分记录与运行元信息）")
 
 # ---------- tab5 批量测试 ----------
 with tab5:

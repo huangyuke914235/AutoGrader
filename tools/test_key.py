@@ -87,6 +87,6 @@ try:
         print("  字段齐全，可以直接进入 D2。")
 except Exception as e:
     print(f"  失败：{e}")
-    print("  若不支持 response_format，改用提示词约束输出（在 prompt 里写"只输出 JSON"）即可，不必换模型。")
+    print("  若不支持 response_format，改用提示词约束输出（在 prompt 里写「只输出 JSON」）即可，不必换模型。")
 
 print("\n完成。把上面两段输出截图存进 docs/，是很好的开发过程留痕。")

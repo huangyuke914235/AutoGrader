@@ -36,6 +36,12 @@ W, H = 13.333, 7.5
 EA_XML = ('<a:ea xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
           'typeface="%s"/>')
 
+# 对外指标 —— 只改这里，然后重跑本脚本
+# BEFORE：缺陷 #3（PDF 断行 / 短引用一票否决）修复**之前**的完整重测值
+# AFTER ：缺陷 #3 修复**之后**的复测值，重跑 tools/benchmark.py 后填进来
+METRICS_BEFORE = {"mae": "20.44", "acc": "0%", "trace": "84.9%"}
+METRICS_AFTER = {"mae": None, "acc": None, "trace": None}
+
 
 def set_font(run, name=FONT):
     run.font.name = name
@@ -303,25 +309,33 @@ def main():
     # ---------- 6 自评测 ----------
     s = prs.slides.add_slide(blank)
     page_base(s, "自评测：敢自测，也敢把不好看的数字写出来", "05 · 真实数据与自评测结果", 6)
-    bignum(s, 0.62, 1.72, 3.9, "13.33", "平均绝对误差 MAE（分）",
+    bignum(s, 0.62, 1.72, 3.9, METRICS_BEFORE["mae"], "平均绝对误差 MAE（分）",
            "系统总分与人工总分之差的绝对值平均")
-    bignum(s, 4.72, 1.72, 3.9, "22.2%", "误差 ≤5 分的报告占比", "9 份参评报告")
-    bignum(s, 8.82, 1.72, 3.9, "95.1%", "证据可溯源率",
+    bignum(s, 4.72, 1.72, 3.9, METRICS_BEFORE["acc"], "误差 ≤5 分的报告占比", "9 份参评报告")
+    bignum(s, 8.82, 1.72, 3.9, METRICS_BEFORE["trace"], "证据可溯源率",
            "每条引用回原文精确匹配，绝不放宽规则")
-    rect(s, 0.62, 3.6, 12.1, 1.15, fill=BG_SOFT)
-    txt(s, 0.9, 3.6, 11.6, 1.15,
-        [("评测方法：10 份真实实验报告，由非主程成员独立人工打分（gold set）——"
-          "打分期间不看系统结果、不与主程讨论，完成后封存，直到评测当天才解封。",
-          {"size": 13.5, "space_after": 4}),
-         ("这是纪律问题：如果让写 prompt 的人来定「正确答案」，那等于对着答案改答案。",
-          {"size": 12, "color": MUTED})], anchor=MSO_ANCHOR.MIDDLE)
-    card(s, 0.62, 4.85, 12.1, 1.8, "诚实记录：第一次跑出来是 MAE 31.67 分",
-         ["9 份里 8 份被系统性低估。顺着这个单向偏差查下去：判定阶段只把报告 top-4 章节、"
-          "每章截断 2500 字送进模型——模型实际只看到全文的 7%~11%。",
-          "这是纯工程缺陷，与 prompt 无关。改为自适应全文后降到 13.33；"
-          "此后我们没有为降低这个数字改动过任何 prompt。",
-          "完整排查记录见仓库 docs/bugfix-上下文丢失.md。"],
-         head_color=AMBER, size=12)
+    after_txt = ("缺陷修复后复测：MAE {mae} 分 / 误差≤5 占比 {acc} / 可溯源率 {trace}　——"
+                 "该修复发生在 gold 解封之后，是靠「系统性低估」这个信号查出来的，"
+                 "我们无法自证它没有沾到 gold 的光".format(**METRICS_AFTER)
+                 if METRICS_AFTER.get("mae") else
+                 "缺陷修复后复测：待重跑 tools/benchmark.py 后填入（修复发生在 gold 解封之后，"
+                 "将如实标注修复动机）")
+    rect(s, 0.62, 3.42, 12.1, 0.62, fill=BG_SOFT)
+    txt(s, 0.9, 3.42, 11.6, 0.62, [(after_txt, {"size": 11.5, "bold": True, "color": AMBER})],
+        anchor=MSO_ANCHOR.MIDDLE)
+    rect(s, 0.62, 4.14, 12.1, 0.95, fill=BG_SOFT)
+    txt(s, 0.9, 4.14, 11.6, 0.95,
+        [("评测方法：10 份真实实验报告由非主程成员独立人工打分（gold set）——"
+          "打分期间不看系统结果、不与主程讨论，封存到评测当天才解封。",
+          {"size": 13, "space_after": 4}),
+         ("这是纪律问题：让写 prompt 的人来定义「正确答案」，等于对着答案改答案。",
+          {"size": 11.5, "color": MUTED})], anchor=MSO_ANCHOR.MIDDLE)
+    card(s, 0.62, 5.19, 12.1, 1.5, "诚实记录：第一次跑出来是 MAE 31.67 分",
+         ["9 份里 8 份被系统性低估。查下去发现判定阶段只把报告 top-4 章节、每章截断 2500 字"
+          "送进模型，模型实际只看到全文的 7%~11%——纯工程缺陷，与 prompt 无关。",
+          "修好后再完整重跑是 20.44 分：同一套代码两次跑分差这么多，是真实方差，我们不藏。"
+          "三篇排查记录都在仓库 docs/ 下。"],
+         head_color=AMBER, size=11.5)
 
     # ---------- 7 AI 协作过程 + 团队 + 展望 ----------
     s = prs.slides.add_slide(blank)

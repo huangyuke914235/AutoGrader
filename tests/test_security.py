@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """安全与隐私测试（不调用模型）"""
 import os
+import re
 import sys
+import json
 import subprocess
 
 import pytest
@@ -9,20 +11,48 @@ import pytest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-# 曾经出现在受跟踪源码里的真实身份信息；一旦有人再写回去，这个测试就会失败
-FORBIDDEN = ["黄宇科", "2025150266", "三维智能导论"]
+# 注意：**不能把真实姓名/学号写进这个文件本身**——那等于又泄露一次。
+# 学号用「类别正则」检查；真实姓名从未跟踪的本地清单里读（没有就跳过姓名检查）。
+ID_PATTERN = r"\b(?:19|20)\d{8,9}\b"
 
 
-def test_no_identity_in_tracked_files():
+def _known_names():
+    """从不受 git 跟踪的本地清单里取已知姓名（没有就返回空列表）"""
+    cfg = os.path.join(ROOT, "tools", "sources.local.json")
+    if not os.path.exists(cfg):
+        return []
     try:
-        out = subprocess.run(["git", "grep", "-n", "-E", "|".join(FORBIDDEN)],
+        return [n for n in json.load(open(cfg, encoding="utf-8")).get("known_names", [])
+                if n]
+    except Exception:
+        return []
+
+
+def test_no_student_id_in_tracked_files():
+    try:
+        out = subprocess.run(["git", "grep", "-n", "-E", ID_PATTERN],
                              cwd=ROOT, capture_output=True, text=True, timeout=30)
     except Exception:
         return                                  # 没有 git 就跳过
     if out.returncode not in (0, 1):
         return
     hits = [l for l in out.stdout.splitlines() if l.strip()]
-    assert not hits, f"受跟踪文件里出现了真实身份信息：{hits[:3]}"
+    assert not hits, f"受跟踪文件里出现了疑似学号：{hits[:3]}"
+
+
+def test_no_known_name_in_tracked_files():
+    names = _known_names()
+    if not names:
+        pytest.skip("本地清单不可用，跳过姓名检查")
+    try:
+        out = subprocess.run(["git", "grep", "-n", "-E", "|".join(names)],
+                             cwd=ROOT, capture_output=True, text=True, timeout=30)
+    except Exception:
+        return
+    if out.returncode not in (0, 1):
+        return
+    hits = [l for l in out.stdout.splitlines() if l.strip()]
+    assert not hits, "受跟踪文件里出现了已知真实姓名"
 
 
 def test_sources_config_is_ignored():

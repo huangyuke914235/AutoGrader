@@ -10,11 +10,18 @@
     r1 实验目的明确 15 / r2 环境与步骤 20 / r3 核心实现 25 / r4 结果与数据 20 / r5 分析与总结 20
 
 用法：
-    python tools/batch_run.py
+    python tools/batch_run.py                 # 默认跑完整流水线（含 G 阶段复核）
+    python tools/batch_run.py --no-recheck    # 只跑 A 阶段（结果文件里会明确记录）
+
+说明：
+    输出**版本化**文件 batch_v2_<时间戳>.json，同时写一个 batch_latest.json 供 benchmark 读取。
+    旧的 batch.json 不会被覆盖——历史结果是审计证据，必须留着。
 """
 import sys
 import os
 import json
+import argparse
+import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

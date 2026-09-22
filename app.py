@@ -18,6 +18,7 @@ import streamlit as st
 
 import parser as P
 import prompts
+import batch_ui
 from models import Rubric, RubricItem
 from pipeline import run_grading, stage_rubric
 from llm import get_env, demo_mode
@@ -98,7 +99,8 @@ with st.sidebar:
 st.title("AutoGrader · 实验报告智能评阅平台")
 st.caption("把老师的评分标准变成可核查、可溯源、可校准的判定流水线")
 
-tab1, tab2, tab3, tab4 = st.tabs(["① 评阅", "② 详情对照", "③ 评分点", "④ 导出"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["① 评阅", "② 详情对照", "③ 评分点", "④ 导出", "⑤ 批量测试"])
 
 # ---------- tab1 评阅 ----------
 with tab1:
@@ -234,8 +236,13 @@ with tab2:
         if res.feedback:
             st.markdown("---")
             st.markdown("#### 评语与改进建议")
-            st.write(res.feedback.summary)
-            for i, s in enumerate(res.feedback.suggestions, 1):
+            fb = res.feedback
+            # E 阶段失败时不再静默：明确告诉用户这是规则兜底，并给出真实原因
+            if getattr(fb, "generated_by", "model") != "model":
+                st.warning("AI 反馈生成环节失败，以下评语由规则引擎根据已锁定的逐项判定拼装；"
+                           "分数与证据不受影响。失败原因：" + (fb.error or "未知")[:200])
+            st.write(fb.summary)
+            for i, s in enumerate(fb.suggestions, 1):
                 st.markdown(f"{i}. {s}")
 
 # ---------- tab3 评分点 ----------
@@ -286,3 +293,8 @@ with tab4:
         st.download_button("下载 JSON", res.model_dump_json(ensure_ascii=False, indent=2),
                            f"{res.report_id}.json", "application/json")
         st.caption(f"结果同时已保存至 data/results/{res.report_id}.json")
+
+# ---------- tab5 批量测试 ----------
+with tab5:
+    batch_ui.render(SAMPLES, RESULTS, _SAMPLE_NOTE,
+                    custom_rubric=st.session_state.get("rubric"))

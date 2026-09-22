@@ -180,6 +180,9 @@
 <p style="font-size:14px;color:var(--tx2);margin-top:10px">
 解封后第一次跑分，MAE 是 <strong>31.67 分</strong>——9 份里 8 份被系统性低估。顺着这个单向偏差查下去，发现判定阶段只把报告的 top-4 章节、每章截断 2500 字送进模型，<strong>模型实际只看到全文的 7%~11%</strong>，代码和结果表格基本全丢。这是纯工程缺陷，与 prompt 无关。<br>
 改成自适应全文后 MAE 降到 13.33（<a href="https://github.com/huangyuke914235/AutoGrader/blob/main/docs/bugfix-%E4%B8%8A%E4%B8%8B%E6%96%87%E4%B8%A2%E5%A4%B1.md">完整排查记录</a>）。<strong>我们之后没有为降低这个数字改动过任何 prompt</strong>——那等于对着答案改答案。</p>
+<p style="font-size:14px;color:var(--tx2);margin-top:10px">
+部署上线后又栽了第二个跟头：评语区显示「反馈生成失败」，而我们把异常吞进了 <code>except Exception</code>，查不到任何原因。最后是在做另一项功能测试时被顺带炸出来的——模型吐的 JSON 里带了未转义的半角引号（<a href="https://github.com/huangyuke914235/AutoGrader/blob/main/docs/bugfix-%E5%8F%8D%E9%A6%88%E7%94%9F%E6%88%90%E5%A4%B1%E8%B4%A5.md">排查与修复记录</a>）。<br>
+这次修复只解决「怎么把模型输出读成 JSON」，<strong>没有改动任何一处证据匹配规则</strong>；救歪了的引用依旧会被原文逐字校验判死重跑。修复发生在上面这些数字产出<strong>之后</strong>，因此联网后会重跑 benchmark——<strong>指标若有变化，以新数字为准，不沿用旧值</strong>。</p>
 <div class="cards">
   <div class="card"><div class="k">平均绝对误差 MAE</div><div class="v" id="m1">—</div></div>
   <div class="card"><div class="k">误差 ≤5 分占比</div><div class="v" id="m2">—</div></div>

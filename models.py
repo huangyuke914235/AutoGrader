@@ -56,6 +56,9 @@ class Feedback(BaseModel):
     summary: str = ""
     per_item: dict = Field(default_factory=dict)
     suggestions: List[str] = Field(default_factory=list)
+    # 以下两个字段由代码填写，不要求模型输出（有默认值，不影响校验）
+    generated_by: str = "model"      # model=模型生成 / fallback=规则兜底
+    error: str = ""                  # E 阶段失败时的真实原因，不允许再被静默吞掉
 
 
 class GradingResult(BaseModel):

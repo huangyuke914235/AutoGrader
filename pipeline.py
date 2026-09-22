@@ -109,6 +109,56 @@ def stage_consistency(item: RubricItem, j: ItemJudgement, sections, full_text: s
 
 
 # ---------- E：反馈生成 ----------
+def fallback_feedback(items, judgements, err: Exception) -> Feedback:
+    """E 阶段失败时的兜底评语：**由代码**根据已锁定的判定结果拼装，不由模型再生成一次。
+
+    纪律边界（不要越线）：
+    - 这里不做任何重新判定，也不放宽任何规则；只是把 A/G 阶段已经通过原文校验的
+      结论，改写成学生看得懂的话。
+    - 分数、verdict、evidence 一律不变，仍然由 A/G 阶段和代码加总决定。
+    - 因此本函数对 MAE / 误差≤5 占比 / 证据可溯源率 三个指标**没有任何影响**。
+    """
+    vmap = {"hit": "完全达标", "partial": "部分达标", "miss": "未达标"}
+    per_item, weak, ok_names = {}, [], []
+    total = round(sum(float(j.score) for j in judgements), 1)
+
+    for it in items:
+        jd = next((x for x in judgements if x.rubric_item_id == it.id), None)
+        if not jd:
+            continue
+        lost = round(float(it.max_score) - float(jd.score), 1)
+        if jd.verdict == "miss":
+            per_item[it.id] = (f"未达标，{jd.score}/{it.max_score} 分。该点要求是「{it.criteria}」，"
+                               f"报告中未找到可支撑的原文依据。")
+            weak.append((it, lost))
+        elif jd.verdict == "partial":
+            per_item[it.id] = (f"部分达标，{jd.score}/{it.max_score} 分，还可争取 {lost} 分。"
+                               f"待补强之处：{it.criteria}。")
+            weak.append((it, lost))
+        else:
+            per_item[it.id] = f"完全达标，{jd.score}/{it.max_score} 分。"
+            ok_names.append(it.name)
+
+    weak_txt = "、".join(f"{it.name}（-{lost}）" for it, lost in weak) or "无"
+    ok_txt = "、".join(ok_names) or "暂无完全达标的评分点"
+    headline = (f"总分 {total}/100。完全达标：{ok_txt}；主要失分点：{weak_txt}。")
+    notice = (f"\n\n（说明：本次评语由规则引擎兜底生成，AI 反馈生成环节失败："
+              f"{type(err).__name__}。逐项判定与分数不受影响，仍附原文证据。）")
+
+    suggestions = []
+    for it, lost in sorted(weak, key=lambda x: -x[1])[:3]:
+        sig = "、".join([s for s in it.positive_signals if s and s != "无"][:3])
+        tail = f"，建议在报告里明确写出并展示 {sig} 等内容" if sig else ""
+        suggestions.append(
+            f"补齐「{it.name}」（满分 {it.max_score}，现失 {lost} 分）："
+            f"判定标准是「{it.criteria}」{tail}。")
+    if not suggestions:
+        suggestions.append("全部评分点均已达标，可在结果分析的深度与创新思考上继续加分。")
+
+    return Feedback(summary=headline + notice, per_item=per_item, suggestions=suggestions,
+                    generated_by="fallback", error=f"{type(err).__name__}: {str(err)[:300]}")
+
+
 def stage_feedback(items, judgements) -> Feedback:
     lines = []
     for it in items:
@@ -121,8 +171,11 @@ def stage_feedback(items, judgements) -> Feedback:
     user = "逐项判定结果：\n" + "\n".join(lines)
     try:
         return call_json(prompts.S4_FEEDBACK, user, Feedback)
-    except Exception:
-        return Feedback(summary="（反馈生成失败，请查看逐项判定）", suggestions=[])
+    except Exception as e:
+        # 老实现会把异常吞成一句「生成失败」，线上查不到原因。
+        # 现在：打到日志 + 写进 Feedback.error 字段（界面可见）+ 给出规则兜底评语。
+        print(f"[pipeline] E 阶段反馈生成失败：{type(e).__name__}: {str(e)[:300]}")
+        return fallback_feedback(items, judgements, e)
 
 
 # ---------- 主流程 ----------

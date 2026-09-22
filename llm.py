@@ -111,16 +111,45 @@ def close_truncated(raw: str) -> str:
     return raw + ('"' if in_str else '') + "".join('}' if c == '{' else ']' for c in reversed(stack))
 
 
+def salvage_truncated(raw: str, steps: int = 160):
+    """最后一级抢救：从尾部逐步截短，直到能解出一个完整对象。
+
+    用于「结构破损到连补齐括号都救不回来」的情况（例如中间少了个引号、
+    或者多出一个不匹配的括号）。宁可拿到前半段可用内容，也不要整段报废。
+    """
+    dec = json.JSONDecoder()
+    n = len(raw)
+    if n < 2:
+        return None
+    step = max(1, n // steps)
+    cut = n
+    while cut > 1:
+        frag = close_truncated(raw[:cut])
+        try:
+            obj, _ = dec.raw_decode(frag)
+        except ValueError:
+            cut -= step
+            continue
+        if isinstance(obj, dict):
+            return obj
+        cut -= step
+    return None
+
+
 def loads_json(raw: str):
-    """宽容 JSON 解析，四级降级的**纯格式**修复（内容一律不改写）：
+    """宽容 JSON 解析，五级降级的**纯格式**修复（内容一律不改写）：
 
        ① 严格 json.loads
-       ② strict=False      —— 允许字符串里出现未转义的换行等控制字符
-       ③ 转义内部裸引号      —— 修复模型写进内容里的半角引号
-       ④ 补齐截断的括号      —— 输出被 max_tokens 截断时救回前半段
+       ② strict=False        —— 允许字符串里出现未转义的换行等控制字符
+       ③ 转义内部裸引号        —— 修复模型写进内容里的半角引号
+       ④ 补齐截断的括号        —— 输出被 max_tokens 截断时救回前半段
+       ⑤ 渐进截断抢救          —— 结构破损到救不回来时，取能解出的前半段
+
+    第 ⑤ 级是 2026-09-23 补的：E 阶段仍偶发 `Expecting ',' delimiter`
+    且四级都救不回来（9 份里约 2 份），与其整段报废，不如拿到前半段可用内容。
 
     为什么可以对 JSON 宽容、却不影响「证据可溯源」这条铁律：
-    这四步一个字符都不删改（转义只是让同一个字符合法化），
+    这五步一个字符都不删改（转义只是让同一个字符合法化，截断只丢尾部），
     改完的证据引用仍然要去过 verify_evidence 的**原文逐字匹配**；
     救不回来或救歪了的引用会在那里被判死并重跑。换句话说，
     这里放宽的是「格式」，不是「证据」——两件事不能混为一谈。
@@ -137,12 +166,20 @@ def loads_json(raw: str):
                 last_err = e
                 try_no += 1
                 continue
-            # 第 0 次（原文 + 严格）成功 = 模型给的就是合法 JSON；
-            # 其余都说明动用了修复，计数留档，事后能回答「有多少次是靠修复救回来的」。
-            if try_no:
-                _stats["json_repaired"] += 1
-            return data
-    raise last_err
+            break
+        else:
+            continue
+        break
+    else:
+        # ⑤ 渐进截断抢救：拿到多少算多少，但必须仍是完整的 JSON 对象
+        data = salvage_truncated(raw)
+        if data is None:
+            raise last_err
+        _stats["json_repaired"] += 1
+        return data
+    if try_no:
+        _stats["json_repaired"] += 1
+    return data
 
 
 def strip_code_fence(raw: str) -> str:

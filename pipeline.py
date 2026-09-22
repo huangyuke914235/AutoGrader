@@ -26,11 +26,15 @@ DEMO_RESULT = None   # 离线演示用（由 tools/make_demo.py 生成后载入�
 # ---------- R：评分点原子化 ----------
 INJECTION_PATTERNS = [
     (r"忽略(以上|前面|上述|所有)(的)?(规则|指令|要求)", "要求忽略规则"),
-    (r"(请|直接|一律)?给?(满分|100\s*分|最高分)", "索要满分"),
+    # 「满分」必须带祈使动词才算索要分数：
+    # 报告里写「本次作业满分为100分」是正常说明，不能误报（2026-09-23 实测误报过 3 份）
+    (r"(请|务必|必须|一律|直接|麻烦|希望)\s*(给|打|判|评)?\s*(我)?\s*"
+     r"(满分|100\s*分|最高分)", "索要满分"),
+    (r"(给|打|判|评)\s*(我)?\s*(满分|100\s*分|最高分)", "索要满分"),
     (r"(ignore|disregard)\s+(all\s+)?(previous|above)\s+instructions", "英文：忽略前述指令"),
     (r"system\s*prompt|系统提示词|<\|.*?\|>", "试图操纵系统提示"),
     (r"你现在是|请扮演|pretend\s+to\s+be", "试图角色扮演"),
-    (r"不要(扣分|给低分)|不得判\s*miss", "要求不得扣分"),
+    (r"(不要|不得|不许)\s*(扣分|给低分|判\s*miss)", "要求不得扣分"),
 ]
 
 
@@ -323,10 +327,19 @@ def stage_feedback(items, judgements) -> Feedback:
     try:
         return call_json(prompts.S4_FEEDBACK, user, Feedback)
     except Exception as e:
-        # 老实现会把异常吞成一句「生成失败」，线上查不到原因。
-        # 现在：打到日志 + 写进 Feedback.error 字段（界面可见）+ 给出规则兜底评语。
-        print(f"[pipeline] E 阶段反馈生成失败：{type(e).__name__}: {str(e)[:300]}")
-        return fallback_feedback(items, judgements, e)
+        # 完整版失败后，再试一次**结构更简单**的版本（少一层嵌套，出错面更小）。
+        # 实测 E 阶段仍偶发 JSON 解析失败（9 份约 2 份），这一步能救回一部分。
+        print(f"[pipeline] E 阶段首次生成失败，改用简化结构重试："
+              f"{type(e).__name__}: {str(e)[:160]}")
+        try:
+            fb = call_json(prompts.S4_FEEDBACK_SIMPLE, user, Feedback)
+            fb.error = f"简化结构重试成功（首次失败：{type(e).__name__}）"
+            return fb
+        except Exception as e2:
+            # 老实现会把异常吞成一句「生成失败」，线上查不到原因。
+            # 现在：打到日志 + 写进 Feedback.error 字段（界面可见）+ 给出规则兜底评语。
+            print(f"[pipeline] E 阶段反馈生成失败：{type(e2).__name__}: {str(e2)[:300]}")
+            return fallback_feedback(items, judgements, e2)
 
 
 # ---------- 主流程 ----------

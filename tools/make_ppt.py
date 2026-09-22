@@ -37,10 +37,10 @@ EA_XML = ('<a:ea xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
           'typeface="%s"/>')
 
 # 对外指标 —— 只改这里，然后重跑本脚本
-# BEFORE：缺陷 #3（PDF 断行 / 短引用一票否决）修复**之前**的完整重测值
-# AFTER ：缺陷 #3 修复**之后**的复测值，重跑 tools/benchmark.py 后填进来
+# BEFORE：缺陷 #3（PDF 断行 / 短引用一票否决）修复**之前**的完整重测值（保守，作为主指标）
+# AFTER ：深度整改后跑**完整流水线**（含 G 阶段复核）的复测值，2026-09-23
 METRICS_BEFORE = {"mae": "20.44", "acc": "0%", "trace": "84.9%"}
-METRICS_AFTER = {"mae": "7.56", "acc": "33.3%", "trace": "93.0%"}
+METRICS_AFTER = {"mae": "6.89", "acc": "44.4%", "trace": "97.0%"}
 
 
 def set_font(run, name=FONT):

@@ -40,7 +40,7 @@ EA_XML = ('<a:ea xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
 # BEFORE：缺陷 #3（PDF 断行 / 短引用一票否决）修复**之前**的完整重测值
 # AFTER ：缺陷 #3 修复**之后**的复测值，重跑 tools/benchmark.py 后填进来
 METRICS_BEFORE = {"mae": "20.44", "acc": "0%", "trace": "84.9%"}
-METRICS_AFTER = {"mae": "10.78", "acc": "22.2%", "trace": "85.9%"}
+METRICS_AFTER = {"mae": "7.56", "acc": "33.3%", "trace": "93.0%"}
 
 
 def set_font(run, name=FONT):

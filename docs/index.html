@@ -196,14 +196,16 @@
 <table>
 <tr><th style="width:34%">两次完整重测（同一批报告、同一份 gold set）</th><th>MAE</th><th>误差 ≤5 分占比</th><th>证据可溯源率</th></tr>
 <tr><td>缺陷 #3 修复前</td><td><strong>20.44</strong></td><td>0%</td><td>84.9%</td></tr>
-<tr><td>缺陷 #3 修复后</td><td>10.78</td><td>22.2%</td><td>85.9%</td></tr>
+<tr><td>缺陷 #3 修复后（最终）</td><td>7.56</td><td>33.3%</td><td>93.0%</td></tr>
 </table>
 <p style="font-size:13px;color:var(--tx2);margin-top:8px">
 必须交代清楚：#3 的修复<strong>发生在 gold set 解封之后</strong>，是我们顺着"系统性地把好报告判低"这个信号查出来的。
 分数因此上升（20.44 → 10.78），<strong>我们无法自证这个修复没有沾到 gold 的光</strong>，
 所以两个数字都摆在这里，由评委自己判断。修复细节见
 <a href="https://github.com/huangyuke914235/AutoGrader/blob/main/docs/bugfix-%E5%BC%95%E7%94%A8%E5%8C%B9%E9%85%8D%E4%B8%8EPDF%E6%96%AD%E8%A1%8C.md">排查记录</a>。<br>
-（修复后复测时又发现：正文归一了但引用没归一，多行代码块引用永远匹配不上，S07 的"核心实现"因此被判 0 分。这一处也已修，<strong>最后一轮重跑的数字待更新</strong>。）</p>
+（修复后第一轮复测是 10.78 分，当时又发现：正文归一了但引用没归一，多行代码块引用永远匹配不上，
+S07 的"核心实现"因此被判 0 分（32 分 vs 人工 63）。这一处修掉后最终复测为 <strong>7.56 分</strong>，
+S07 回到 65 分。<strong>到此为止我们不再为降低这个数字改动任何东西。</strong>）</p>
 
 <h2>团队与开源</h2>
 <p id="teamInfo">

@@ -51,10 +51,10 @@ st.markdown("""
 # ---------- 工具 ----------
 @st.cache_data(show_spinner=False)
 def load_text(sample: str):
-    path = os.path.join(SAMPLES, sample)
-    with open(path, encoding="utf-8") as f:
-        full = f.read()
-    return full, P.split_sections(full)
+    # 必须走 parse_file（含空白归一），不能自己 open 读原文：
+    # 判定用的上下文和引用校验用的正文必须是同一份规范文本，
+    # 两边不一致会把好报告活活判成 0 分（见 docs/bugfix-引用匹配与PDF断行.md）
+    return P.parse_file(os.path.join(SAMPLES, sample))
 
 
 def highlight(text, quotes, active=None):

@@ -65,6 +65,9 @@ def main():
                     "confidence": j.confidence,
                     "needs_review": j.needs_review,
                     "evidence": [e.quote for e in j.evidence],
+                    # 被原文校验剔除的引用也要留档：可溯源率必须按「模型原始产出」算，
+                    # 只统计存活下来的引用会让这个数字虚高
+                    "dropped": list(getattr(j, "dropped_quotes", []) or []),
                 })
             out.append({"report_id": rid, "total": res.total, "chars": m["chars"],
                         "name": str(m.get("original", ""))[:30], "details": details})

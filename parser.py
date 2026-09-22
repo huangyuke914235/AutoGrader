@@ -146,12 +146,41 @@ def extract_text(path: str) -> str:
     raise ValueError(f"暂不支持的文件类型：{ext}（只支持 pdf / docx / txt / md）")
 
 
+def canonical(text: str) -> str:
+    """把正文规范成「所有连续空白都压成一个空格」的单一形态。
+
+    为什么要做：PDF 抽取出来的正文几乎每行都被斩断（实测 S08/S09/S10 平均每 19 字
+    一个换行），模型引用的是通顺的句子，拿去和带换行的原文做逐字匹配必然失败，
+    于是整条判定被作废、评分点被判成 0 分。
+
+    这不是放宽匹配规则：正文与引用**两侧用同一套规则**规范化，
+    匹配仍然是精确匹配，只是把「抽取产生的换行」这个 artifact 消掉了。
+    """
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def parse_file(path: str):
-    """返回 (full_text, sections)"""
-    full_text = extract_text(path)
-    full_text = full_text.replace("\r\n", "\n").replace("\r", "\n")
-    full_text = re.sub(r"\u3000", " ", full_text)
-    return full_text, split_sections(full_text)
+    """返回 (canonical_text, sections)
+
+    注意：章节切分仍然在**原始文本**上做（标题识别依赖换行），
+    切完再把全文与每个章节各自规范化，并按规范后的文本重算偏移量，
+    否则详情页的「定位 / 高亮」会错位。
+    """
+    raw = extract_text(path)
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+    raw = re.sub(r"\u3000", " ", raw)
+
+    sections = split_sections(raw)
+    full_text = canonical(raw)
+
+    pos = 0
+    for s in sections:
+        s.text = canonical(s.text)
+        i = full_text.find(s.text, pos)
+        s.char_start = i if i >= 0 else pos
+        s.char_end = s.char_start + len(s.text)
+        pos = max(s.char_end, s.char_start)
+    return full_text, sections
 
 
 FULL_TEXT_LIMIT = 40000   # 约 27k tokens；正确性优先，超长文档才走召回

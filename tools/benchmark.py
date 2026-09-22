@@ -63,22 +63,37 @@ def main():
     acc5 = round(100 * sum(1 for d in diffs if d <= 5) / len(diffs), 1)
 
     # ---- 证据可溯源率：把每条 quote 拿回原文精确匹配 ----
+    # 注意两件事：
+    #   1) 正文要先用 parser.canonical 规范过（判定时用的就是这份文本），
+    #      否则拿带 PDF 断行的原文去比，等于自己给自己制造失败。
+    #   2) 被校验剔除的引用（dropped）一律计入分母且算不可溯源 ——
+    #      可溯源率衡量的是「模型原始产出的引用」有多少能回溯，
+    #      只统计幸存者会让这个数字虚高。
+    import sys
+    sys.path.insert(0, ROOT)
+    import parser as P
+
     checked = 0
     traceable = 0
+    dropped_n = 0
     cache = {}
     for r in compared:
         rid = r["report_id"]
         if rid not in cache:
-            cache[rid] = load_text(rid)
+            raw = load_text(rid)
+            cache[rid] = P.canonical(raw) if raw else None
         text = cache[rid]
         for d in ai[rid]["details"]:
-            quotes = d.get("evidence", [])
-            if not quotes:
+            quotes = list(d.get("evidence", []) or [])
+            dropped = list(d.get("dropped", []) or [])
+            dropped_n += len(dropped)
+            if not quotes and not dropped:
                 continue
             for q in quotes:
                 checked += 1
                 if text and q and len(q) >= 6 and q in text:
                     traceable += 1
+            checked += len(dropped)          # 被剔除的：计入分母，不算可溯源
     trace = round(100 * traceable / checked, 1) if checked else 0.0
 
     # ---- 逐项：人工判定 vs 系统判定 一致率 ----
@@ -104,7 +119,8 @@ def main():
     print("\n=== 对外指标（填进主页） ===")
     print(f"  MAE 平均绝对误差：{mae} 分")
     print(f"  误差 ≤5 分占比  ：{acc5}%")
-    print(f"  证据可溯源率    ：{trace}%（{traceable}/{checked} 条引用通过原文精确匹配）")
+    print(f"  证据可溯源率    ：{trace}%（{traceable}/{checked} 条引用通过原文精确匹配；"
+          f"另有 {dropped_n} 条被校验剔除，已计入分母）")
     print(f"  评分点判定一致率：{item_acc}%（{agree}/{total_items}，仅作参考，不对外宣称）")
 
     not_eval = [r["report_id"] for r in rows if r["ai"] is None]
@@ -112,6 +128,7 @@ def main():
         print(f"\n⚠ 未参与评测：{not_eval}（系统因超长跳过，人工分仍在 gold.json 里）")
 
     json.dump({"mae": mae, "acc": acc5, "trace": trace,
+               "checked": checked, "traceable": traceable, "dropped": dropped_n,
                "item_agreement": item_acc, "n_reports": len(compared),
                "not_evaluated": not_eval, "rows": rows},
               open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=2)

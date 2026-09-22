@@ -49,6 +49,9 @@ class ItemJudgement(BaseModel):
     reason: str = ""
     evidence: List[Evidence] = Field(default_factory=list)
     needs_review: bool = False
+    # 被原文校验剔除的引用：留着是为了让「可溯源率」仍按**模型原始产出**计算，
+    # 而不是按筛选后的幸存者计算（后者会让这个数字虚高，属于自欺）
+    dropped_quotes: List[str] = Field(default_factory=list)
 
 
 class Feedback(BaseModel):

@@ -91,8 +91,8 @@ def _read_report(path):
 def _run_one(name, samples_dir, rubric, enable_recheck):
     """跑一份报告，返回一行结果 + 明细"""
     path = os.path.join(samples_dir, name)
-    full = _read_report(path)
-    secs = P.split_sections(full)
+    # 用 parse_file 一次拿到「规范全文 + 章节」，不要再对已归一的文本做二次切分
+    full, secs = P.parse_file(path)
     res = run_grading(full, secs, "", report_id=os.path.splitext(name)[0],
                       rubric=rubric, enable_recheck=enable_recheck)
     return full, res

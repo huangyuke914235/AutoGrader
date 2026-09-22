@@ -236,17 +236,38 @@ def verify_evidence(judgement, full_text: str, min_len: int = 6) -> bool:
 
     这是「让执行者之外的东西来判定」的工程实现。
     返回 False 时必须在 pipeline 里触发重跑，而不是放宽规则。
+
+    2026-09-22 改为**逐条**判定：不合格的引用被剔除，只要还剩至少一条合格引用，
+    这条判定就成立；一条都不剩才算不通过。
+
+    为什么要改：旧实现是「一条不合格 → 整条判定连同其余合格引用一起作废」。
+    实测一轮评测里有 11 个评分点因此被判成 0 分，而它们其实带着 3~6 条完全合格的引用。
+    这等于在惩罚「引用给得多」的报告——那是 bug，不是严格。
+    （详见 docs/bugfix-引用匹配与PDF断行.md）
+
+    规则本身没有变松：每一条被保留下来的引用，仍然必须在原文中逐字存在。
     """
     if judgement.verdict == "miss":
         return True
     if not judgement.evidence:
         return False
+
+    good, dropped = [], []
     for ev in judgement.evidence:
         q = (ev.quote or "").strip()
-        if len(q) < min_len:
-            return False
-        if q not in full_text:
-            return False
+        if len(q) >= min_len and q in full_text:
+            good.append(ev)
+        else:
+            dropped.append(q)
+
+    judgement.dropped_quotes = dropped
+    if not good:
+        return False
+    if dropped:
+        judgement.evidence = good
+        brief = "、".join(f"「{d[:12]}」" for d in dropped[:3])
+        judgement.reason = (judgement.reason or "") + \
+            f"（另有 {len(dropped)} 条引用未通过原文逐字校验，已剔除：{brief}）"
     return True
 
 

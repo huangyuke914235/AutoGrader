@@ -252,17 +252,26 @@ def verify_evidence(judgement, full_text: str, min_len: int = 6) -> bool:
     if not judgement.evidence:
         return False
 
+    # 正文在解析时已做过空白归一，所以引用也必须用同一套规则归一后再比。
+    # 少了这一步，多行代码块的引用就永远匹配不上（例如 S07/r3 引的 Python 代码）。
+    from parser import canonical as _canon
+
     good, dropped = [], []
     for ev in judgement.evidence:
-        q = (ev.quote or "").strip()
+        q = _canon(ev.quote or "")
         if len(q) >= min_len and q in full_text:
+            ev.quote = q            # 存归一后的形态，保证详情页高亮能对得上
             good.append(ev)
         else:
             dropped.append(q)
 
-    judgement.dropped_quotes = dropped
     if not good:
+        # 一条合格引用都没有：不合格的原样留在 evidence 里（教师界面还能看到模型当时引了什么），
+        # 但**不再记进 dropped_quotes**，否则可溯源率的分母会把同一批引用数两遍。
+        judgement.dropped_quotes = []
         return False
+
+    judgement.dropped_quotes = dropped
     if dropped:
         judgement.evidence = good
         brief = "、".join(f"「{d[:12]}」" for d in dropped[:3])

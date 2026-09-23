@@ -39,20 +39,53 @@ def _safe_display_name(name: str) -> str:
 
 
 def load_uploaded(up):
-    """上传 -> 解析 -> 删除临时文件。
+    """上传 -> 解析 -> 渲染版面预览 -> 删除临时文件。
 
-    report_id 用随机 UUID（不参与任何路径拼接，且不做可预测文件名），
-    原始文件名只保留一个净化后的展示名；临时文件无论成败都在 finally 里删除。
+    report_id 用随机 UUID（不参与任何路径拼接），原始文件名只保留净化后的展示名；
+    临时文件无论成败都在 finally 中删除。
+    版面预览必须在删除临时文件**之前**渲染，且只保存在内存里，不落盘。
     """
     tmp = _save_upload_to_temp(up)
     try:
         full_text, sections = P.parse_file(tmp)
+        try:
+            images, total_pages = P.render_pdf_pages(tmp), P.pdf_page_count(tmp)
+        except Exception as e:              # 渲染失败绝不能影响评阅主流程
+            print(f"[warn] 版面渲染失败（不影响评阅）：{type(e).__name__}: {e}")
+            images, total_pages = [], 0
     finally:
         try:
             os.remove(tmp)
         except OSError as e:
             print(f"[warn] 临时上传文件未能删除：{tmp}（{e}）")
-    return full_text, sections, "UP-" + uuid.uuid4().hex[:8], _safe_display_name(up.name)
+    return (full_text, sections, "UP-" + uuid.uuid4().hex[:8],
+            _safe_display_name(up.name), images, total_pages)
+
+
+def load_sample(pick):
+    """读取内置脱敏样本；若本机保留了对应的原始 PDF，则顺带渲染版面预览"""
+    full_text, sections = load_text(pick)
+    rid = os.path.splitext(pick)[0]
+    images, total_pages = [], 0
+    orig = os.path.join(ROOT, "data", "raw", rid + ".pdf")
+    if os.path.exists(orig):
+        try:
+            images, total_pages = P.render_pdf_pages(orig), P.pdf_page_count(orig)
+        except Exception as e:
+            print(f"[warn] 样本版面渲染失败（不影响评阅）：{type(e).__name__}: {e}")
+    return full_text, sections, rid, images, total_pages
+
+
+def show_page_preview():
+    """展示原始版面：只渲染 PDF，图片内容不参与判定"""
+    images = st.session_state.get("page_images") or []
+    if not images:
+        return
+    total = st.session_state.get("page_images_total", len(images))
+    with st.expander(f"原始版面对照（{len(images)} 页，供人工核对）", expanded=False):
+        st.caption(P.preview_caption(len(images), total))
+        for i, img in enumerate(images, 1):
+            st.image(img, caption=f"第 {i} 页", use_container_width=True)
 
 
 def _save_upload_to_temp(up) -> str:
@@ -168,8 +201,9 @@ with tab1:
                 if _SAMPLE_NOTE:
                     st.caption(_SAMPLE_NOTE)
                 pick = st.selectbox("样本", files)
-                full_text, sections = load_text(pick)
-                report_id = os.path.splitext(pick)[0]
+                full_text, sections, report_id, imgs, total_pages = load_sample(pick)
+                st.session_state["page_images"] = imgs
+                st.session_state["page_images_total"] = total_pages
         else:
             st.warning("上传的报告正文会被发送到本项目配置的模型服务（见侧边栏显示的模型）。"
                        "**请勿上传含真实姓名/学号的未脱敏作业。**")
@@ -180,12 +214,21 @@ with tab1:
                     st.error(f"文件过大（{up.size/1048576:.1f}MB），上限 20MB。")
                     full_text, sections, report_id = "", [], ""
                 else:
-                    full_text, sections, report_id, disp = load_uploaded(up)
+                    full_text, sections, report_id, disp, imgs, total_pages = load_uploaded(up)
                     st.session_state["display_name"] = disp
+                    st.session_state["page_images"] = imgs
+                    st.session_state["page_images_total"] = total_pages
             else:
                 full_text, sections, report_id = "", [], ""
         if full_text:
             st.success(f"已载入 {report_id}：{len(full_text)} 字 / {len(sections)} 章节")
+            if st.session_state.get("page_images"):
+                st.caption(f"已渲染原始版面 {len(st.session_state['page_images'])} 页，"
+                           f"可在「详情对照」页人工核对（图片内容不参与自动判定）")
+            # 解析体检警告（疑似扫描件 / 超长召回模式）在这里就说清楚，不等到出分
+            for w in P.inspect_text(full_text, len(sections))["warnings"]:
+                st.warning(w)
+            show_page_preview()      # 评阅前就能人工核对版面
 
     with c2:
         st.subheader("评分标准")
@@ -278,6 +321,8 @@ with tab2:
             if ov_n:
                 st.caption(f"已应用 {ov_n} 处人工改分；AI 原始总分 {res.ai_total}，"
                            f"最终总分 {res.total}。导出文件里两者都会保留。")
+
+        show_page_preview()
 
         all_quotes = [e.quote for j in res.judgements for e in j.evidence]
         L, R = st.columns([1, 1])

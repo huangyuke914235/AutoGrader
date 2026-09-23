@@ -174,6 +174,75 @@ def extract_text(path: str) -> str:
 
 SHORT_TEXT_CHARS = 200        # 低于此字数基本可以判定为扫描件/图片型报告
 
+PREVIEW_MAX_PAGES = 20        # 单份最多渲染多少页（防止超长 PDF 把内存吃满）
+PREVIEW_DPI = 100             # 够看清版面与截图，又不至于让单页图片过大
+
+
+def _open_pdf(path: str):
+    """打开 PDF：优先新包名 pymupdf，兼容旧包名 fitz。
+    文件不存在时**显式报错**（预览失败要能被发现，不静默返回空）。"""
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"找不到文件：{path}")
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz
+    return fitz.open(path)
+
+
+def render_pdf_pages(path: str, max_pages: int = PREVIEW_MAX_PAGES,
+                     dpi: int = PREVIEW_DPI):
+    """把 PDF 每页渲染成 PNG 字节，供教师人工对照版面。
+
+    边界说明（很重要，别越界）：
+    - 本函数**不产生任何文本**，因此不参与判定、不进证据链、不影响任何指标；
+      它解决的是"老师想核对某张截图/图表/公式，却要另外打开原文件"的不便。
+    - 本函数**不做 OCR**：图片里的内容依然是"看得见、读不到"，
+      相关判定仍按现状处理，界面会如实说明这一点。
+    - 隐私：只在内存中返回字节，调用方用完即弃，**不落盘**。
+
+    仅支持 PDF；其它格式返回空列表。
+    """
+    if os.path.splitext(path)[1].lower() != ".pdf" or max_pages <= 0:
+        return []
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz
+    zoom = dpi / 72.0
+    pages = []
+    doc = _open_pdf(path)
+    try:
+        for i, page in enumerate(doc):
+            if i >= max_pages:
+                break
+            pages.append(page.get_pixmap(matrix=fitz.Matrix(zoom, zoom)).tobytes("png"))
+    finally:
+        doc.close()
+    return pages
+
+
+def preview_caption(n_rendered: int, total_pages: int) -> str:
+    """预览区说明文案：把「能看」与「能读」的区别讲清楚"""
+    head = f"已渲染 {n_rendered} 页原始版面"
+    if total_pages > n_rendered:
+        head += f"（共 {total_pages} 页，仅渲染前 {n_rendered} 页）"
+    return (head + "，仅供人工对照。图片与截图中的内容不参与自动判定"
+                   "（系统不做 OCR，读不到的内容不会成为评分依据）。")
+
+
+def pdf_page_count(path: str) -> int:
+    """PDF 总页数（用于预览文案；非 PDF 返回 0）"""
+    if os.path.splitext(path)[1].lower() != ".pdf":
+        return 0
+    try:
+        doc = _open_pdf(path)
+        n = doc.page_count
+        doc.close()
+        return n
+    except Exception:
+        return 0          # 页数只用于文案，拿不到就不显示，不影响主流程
+
 
 def inspect_text(full_text: str, n_sections: int = 0, pages: int = 0) -> dict:
     """解析体检：把「这份报告我们能读到什么、读不到什么」明确说出来。

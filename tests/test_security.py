@@ -119,12 +119,13 @@ def test_upload_temp_file_is_removed_even_when_parse_fails(monkeypatch):
         app.load_uploaded(FakeUp())
     assert len(removed) == 1 and "etc" not in removed[0], "失败也要删，且路径不能逃逸"
 
-    # 情形二：解析成功
+    # 情形二：解析成功（返回值含版面预览字段）
     monkeypatch.setattr(app.P, "parse_file", lambda _p: ("正文内容", []))
-    _ft, _sec, rid, disp = app.load_uploaded(FakeUp())
+    _ft, _sec, rid, disp, imgs, total = app.load_uploaded(FakeUp())
     assert len(removed) == 2
     assert rid.startswith("UP-") and len(rid) == 11
     assert "/" not in disp and "\\" not in disp
+    assert imgs == [] and total == 0, "docx 不渲染版面，且不额外落盘"
 
 
 def test_prompt_injection_is_flagged_not_silenced():

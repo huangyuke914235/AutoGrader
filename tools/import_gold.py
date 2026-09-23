@@ -43,11 +43,17 @@ def cell(ws, row, col):
 
 
 def read_seal(wb):
+    """读封存记录。
+
+    版式提示（踩过坑）：第 1 行是合并标题、第 2 行留空，字段从**第 3 行**才开始。
+    表格下方可能还有「补填说明」等补充行，一并带出来——
+    这样 gold.json 自己能说清来历（比如哪些字段是事后补填的）。
+    """
     if "⑤ 封存记录" not in wb.sheetnames:
         return {}
     ws = wb["⑤ 封存记录"]
     info = {}
-    for r in range(3, 12):
+    for r in range(3, ws.max_row + 1):
         k = cell(ws, r, 1)
         v = cell(ws, r, 2)
         if k:
@@ -163,6 +169,10 @@ def main():
         "minutes_spent": seal.get("总耗时（分钟）") or "",
         "independent": seal.get("是否独立完成（未与主程讨论）") or "",
         "no_ai_reference": seal.get("是否全程未参考 AI 评分") or "",
+        # 表下方的补充说明（例如"某几个字段是事后补填的"）原样带出，
+        # 让 gold.json 自己交代来历，而不是靠口头解释
+        "seal_note": seal.get("补填说明") or "",
+        "source_sheet": os.path.basename(XLSX),
         "rubric": MAXSCORE,
         "excluded_reports": excluded,
         "reports": gold,

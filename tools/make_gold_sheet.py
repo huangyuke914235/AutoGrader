@@ -53,6 +53,11 @@ AL_CT = Alignment(horizontal="center", vertical="top", wrap_text=True)
 
 
 def put(ws, row, col, value, font=F_BODY, fill=None, align=AL_W, border=True):
+    # 兜底：公式只允许一个前导等号。
+    # 实际交付的打分表里出现过 62 处 `==SUMIFS(...)`（Excel 不会计算），
+    # 源头没定位到，但代价太大——一张不会算的表交到人手里很难看，所以在这里挡一道。
+    if isinstance(value, str) and value.startswith("=="):
+        value = value[1:]
     c = ws.cell(row=row, column=col, value=value)
     c.font = font
     c.alignment = align

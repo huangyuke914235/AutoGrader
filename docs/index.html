@@ -179,13 +179,13 @@
 <p class="sub">10 份报告由<strong>非主程成员独立人工打分</strong>（gold set）：打分期间不看系统结果、不与主程讨论，完成后封存，直到评测当天才解封。</p>
 <p style="font-size:14px;color:var(--tx2);margin-top:10px">
 解封后第一次跑分，MAE 是 <strong>31.67 分</strong>——9 份里 8 份被系统性低估。顺着这个单向偏差查下去，发现判定阶段只把报告的 top-4 章节、每章截断 2500 字送进模型，<strong>模型实际只看到全文的 7%~11%</strong>，代码和结果表格基本全丢。这是纯工程缺陷，与 prompt 无关。<br>
-改成自适应全文后，第一次复测 MAE 是 13.33（<a href="https://github.com/huangyuke914235/AutoGrader/blob/main/docs/bugfix-%E4%B8%8A%E4%B8%8B%E6%96%87%E4%B8%A2%E5%A4%B1.md">完整排查记录</a>）。<strong>我们之后没有为降低这个数字改动过任何 prompt</strong>——那等于对着答案改答案。</p>
+改成自适应全文后，第一次复测 MAE 是 13.33（<a class="repoDoc" href="#" data-doc="docs/bugfix-上下文丢失.md">完整排查记录</a>）。<strong>我们之后没有为降低这个数字改动过任何 prompt</strong>——那等于对着答案改答案。</p>
 <p style="font-size:14px;color:var(--tx2);margin-top:10px">
 <strong>但我们很快发现 13.33 这个数字站不住。</strong>把修复后的链路在联网环境完整重跑一遍，结果是 <strong>MAE 20.44 分、误差≤5 分占比 0%、证据可溯源率 84.9%</strong>。同一套代码、同一批报告，两次跑分的差就这么大——这是真实存在的方差，我们不打算藏。</p>
 <p style="font-size:14px;color:var(--tx2);margin-top:10px">
-更要紧的是顺着 84.9% 查下去发现的第三个缺陷：159 条引用里有 24 条没通过原文校验，其中绝大多数是 <strong>PDF 抽取把正文切得满是断行</strong>（S08/S09/S10 平均每 19 字一个换行），模型引用的是通顺的句子，逐字匹配自然对不上；另有 10 条引用因为短于 6 个字被我们的规则判死。<strong>两类失败都会触发「作废重跑」，两次不过就把整条判定降级为 0 分</strong>——这一轮有 11 个评分点因此被判死，而它们引用的证据其实都真实存在于报告里（<a href="https://github.com/huangyuke914235/AutoGrader/blob/main/docs/bugfix-%E5%BC%95%E7%94%A8%E5%8C%B9%E9%85%8D%E4%B8%8EPDF%E6%96%AD%E8%A1%8C.md">排查记录</a>）。</p>
+更要紧的是顺着 84.9% 查下去发现的第三个缺陷：159 条引用里有 24 条没通过原文校验，其中绝大多数是 <strong>PDF 抽取把正文切得满是断行</strong>（S08/S09/S10 平均每 19 字一个换行），模型引用的是通顺的句子，逐字匹配自然对不上；另有 10 条引用因为短于 6 个字被我们的规则判死。<strong>两类失败都会触发「作废重跑」，两次不过就把整条判定降级为 0 分</strong>——这一轮有 11 个评分点因此被判死，而它们引用的证据其实都真实存在于报告里（<a class="repoDoc" href="#" data-doc="docs/bugfix-引用匹配与PDF断行.md">排查记录</a>）。</p>
 <p style="font-size:14px;color:var(--tx2);margin-top:10px">
-部署上线后还栽过第二个跟头：评语区显示「反馈生成失败」，而我们把异常吞进了 <code>except Exception</code>，查不到原因。最后是在做另一项功能测试时被顺带炸出来的——模型吐的 JSON 里带了未转义的半角引号（<a href="https://github.com/huangyuke914235/AutoGrader/blob/main/docs/bugfix-%E5%8F%8D%E9%A6%88%E7%94%9F%E6%88%90%E5%A4%B1%E8%B4%A5.md">排查与修复记录</a>）。那次修复只解决「怎么把模型输出读成 JSON」，<strong>没有改动任何一处证据匹配规则</strong>。<br>
+部署上线后还栽过第二个跟头：评语区显示「反馈生成失败」，而我们把异常吞进了 <code>except Exception</code>，查不到原因。最后是在做另一项功能测试时被顺带炸出来的——模型吐的 JSON 里带了未转义的半角引号（<a class="repoDoc" href="#" data-doc="docs/bugfix-反馈生成失败.md">排查与修复记录</a>）。那次修复只解决「怎么把模型输出读成 JSON」，<strong>没有改动任何一处证据匹配规则</strong>。<br>
 <strong>所以下面挂的是最新一次完整重测的数字，不是我们跑得最好的那一次。</strong></p>
 <div class="cards">
   <div class="card"><div class="k">平均绝对误差 MAE</div><div class="v" id="m1">—</div></div>
@@ -216,7 +216,7 @@ Pearson 0.907 ~ 0.936，判定一致率 82.2% ~ 86.7%，系统失败率均为 0%
 必须交代清楚：#3 的修复<strong>发生在 gold set 解封之后</strong>，是我们顺着"系统性地把好报告判低"这个信号查出来的。
 分数因此上升（20.44 → 6.7 左右），<strong>我们无法自证这个修复没有沾到 gold 的光</strong>，
 所以四次评测的数字都摆在这里，由评委自己判断。修复细节见
-<a href="https://github.com/huangyuke914235/AutoGrader/blob/main/docs/bugfix-%E5%BC%95%E7%94%A8%E5%8C%B9%E9%85%8D%E4%B8%8EPDF%E6%96%AD%E8%A1%8C.md">排查记录</a>。<br>
+<a class="repoDoc" href="#" data-doc="docs/bugfix-引用匹配与PDF断行.md">排查记录</a>。<br>
 （修复后第一轮复测是 10.78 分，当时又发现：正文归一了但引用没归一，多行代码块引用永远匹配不上，
 S07 的"核心实现"因此被判 0 分（32 分 vs 人工 63）。这一处修掉后最终复测为 <strong>7.56 分</strong>，
 S07 回到 65 分。<strong>到此为止我们不再为降低这个数字改动任何东西。</strong>）</p>
@@ -256,6 +256,11 @@ var VIDEO_URL = "https://www.bilibili.com/video/xxxx";
 document.getElementById('demoLink').href  = DEMO_URL;
 document.getElementById('repoLink').href  = REPO_URL;
 document.getElementById('videoLink').href = VIDEO_URL;
+/* 正文里的「排查记录」链接也跟随 REPO_URL：
+   把 REPO_URL 改成 Gitee 地址，整页（含文档链接）就一起切到镜像，不用逐个改 */
+document.querySelectorAll('.repoDoc').forEach(function(a){
+  a.href = REPO_URL + '/blob/main/' + encodeURI(a.getAttribute('data-doc'));
+});
 
 /* ====== TODO：案例列表，与 docs/cases/ 下的文件名对应 ====== */
 var CASES = ["S02", "S03", "S04"];

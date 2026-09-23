@@ -40,7 +40,11 @@ EA_XML = ('<a:ea xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
 # BEFORE：缺陷 #3（PDF 断行 / 短引用一票否决）修复**之前**的完整重测值（保守，作为主指标）
 # AFTER ：深度整改后跑**完整流水线**（含 G 阶段复核）的复测值，2026-09-23
 METRICS_BEFORE = {"mae": "20.44", "acc": "0%", "trace": "84.9%"}
-METRICS_AFTER = {"mae": "6.89", "acc": "44.4%", "trace": "97.0%"}
+# 深度整改后，同一份代码跑了两次完整评测，这里取最新一次；
+# 页面上会明确写出区间，不挑好看的那一次
+METRICS_AFTER = {"mae": "6.67", "acc": "33.3%", "trace": "96.9%"}
+RANGE_NOTE = ("同一份代码两次完整评测：MAE 6.67~6.89，误差≤5 占比 33.3%~44.4%，"
+              "可溯源率 96.9%~97.0% —— 波动就摆出来")
 
 
 def set_font(run, name=FONT):
@@ -316,10 +320,10 @@ def main():
            "每条引用回原文精确匹配，绝不放宽规则")
     after_txt = ("缺陷修复后复测：MAE {mae} 分 / 误差≤5 占比 {acc} / 可溯源率 {trace}　——"
                  "该修复发生在 gold 解封之后，是靠「系统性低估」这个信号查出来的，"
-                 "我们无法自证它没有沾到 gold 的光".format(**METRICS_AFTER)
+                 "我们无法自证它没有沾到 gold 的光。".format(**METRICS_AFTER)
                  if METRICS_AFTER.get("mae") else
                  "缺陷修复后复测：待重跑 tools/benchmark.py 后填入（修复发生在 gold 解封之后，"
-                 "将如实标注修复动机）")
+                 "将如实标注修复动机）") + " " + RANGE_NOTE
     rect(s, 0.62, 3.42, 12.1, 0.62, fill=BG_SOFT)
     txt(s, 0.9, 3.42, 11.6, 0.62, [(after_txt, {"size": 11.5, "bold": True, "color": AMBER})],
         anchor=MSO_ANCHOR.MIDDLE)

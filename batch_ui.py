@@ -159,7 +159,9 @@ def _render_multi(samples_dir, rubric, rubric_is_fixed, enable_recheck, files):
 
     checked, ok = st.session_state.get("batch_trace", (0, 0))
     if checked:
-        st.caption(f"证据可溯源率：{round(100*ok/checked, 1)}%（{ok}/{checked} 条引用在本报告原文中精确匹配）")
+        st.caption(f"证据可溯源率：{round(100*ok/checked, 1)}%（{ok}/{checked} 条引用在报告原文中逐字匹配）"
+                   f"—— 分母是**模型产出的全部引用**（含被校验剔除、以及整条判定作废的），"
+                   f"与主页/benchmark 同一口径；只数幸存引用会恒为 ~100%，那种数字没有意义")
 
     if gold and rubric_is_fixed:
         diffs = [abs(r["差值"]) for r in done if "差值" in r]

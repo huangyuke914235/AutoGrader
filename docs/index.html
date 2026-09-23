@@ -176,7 +176,8 @@
 </table>
 
 <h2>自评测结果</h2>
-<p class="sub">10 份报告由<strong>非主程成员独立人工打分</strong>（gold set）：打分期间不看系统结果、不与主程讨论，完成后封存，直到评测当天才解封。</p>
+<p class="sub">9 份报告由<strong>非主程成员独立人工打分</strong>（gold set）：打分期间不看系统结果、不与主程讨论，完成后封存，直到评测当天才解封。<br>
+（另收集了 1 份 6.7 万字的超长报告，未纳入自动评测——超长会显著拉长单次耗时；其人工分保留在基准集里，不计入任何指标。）</p>
 <p style="font-size:14px;color:var(--tx2);margin-top:10px">
 解封后第一次跑分，MAE 是 <strong>31.67 分</strong>——9 份里 8 份被系统性低估。顺着这个单向偏差查下去，发现判定阶段只把报告的 top-4 章节、每章截断 2500 字送进模型，<strong>模型实际只看到全文的 7%~11%</strong>，代码和结果表格基本全丢。这是纯工程缺陷，与 prompt 无关。<br>
 改成自适应全文后，第一次复测 MAE 是 13.33（<a class="repoDoc" href="#" data-doc="docs/bugfix-上下文丢失.md">完整排查记录</a>）。<strong>我们之后没有为降低这个数字改动过任何 prompt</strong>——那等于对着答案改答案。</p>

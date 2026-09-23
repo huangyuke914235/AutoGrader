@@ -8,7 +8,7 @@
 
 ## 一、现象：第一次 benchmark 结果很难看
 
-B 成员完成 10 份报告的人工打分（gold set 封存）后，跑 `tools/benchmark.py`：
+非主程成员完成报告的人工打分（gold set 封存，其中 9 份纳入系统评测）后，跑 `tools/benchmark.py`：
 
 ```
 MAE 平均绝对误差：31.67 分

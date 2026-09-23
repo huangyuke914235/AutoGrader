@@ -5,6 +5,14 @@
 > **不做「让 AI 打个分」，而做「把评分标准变成可核查、可溯源、可校准的判定流水线」。**
 > 分数是结果，每一个分数背后那句"证据在第 3 节，原文是……"才是产品价值。
 
+## 快速入口
+
+| | 链接 |
+|---|---|
+| 3 分钟演示视频 | https://www.bilibili.com/video/BV1sthb6iECB/ |
+| 在线 Demo | https://autograder-szu.streamlit.app |
+| 作品主页（GitHub Pages，含离线可看案例） | https://huangyuke914235.github.io/AutoGrader/ |
+
 ## 团队
 
 深圳大学计算机与软件学院 · 计算机科学与技术 · 2025 级 05 班，2 人：

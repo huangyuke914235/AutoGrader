@@ -261,11 +261,13 @@ S07 回到 65 分。<strong>到此为止我们不再为降低这个数字改动�
 /* ====== 链接：DEMO_URL 待 Streamlit 部署成功后填写 ====== */
 var DEMO_URL  = "https://autograder-szu.streamlit.app";
 var REPO_URL  = "https://github.com/huangyuke914235/AutoGrader";
-/* 视频链接：录完把下面这行换成真实地址即可（占位符会被下面的判断识别，不会放死链出去） */
-var VIDEO_URL = "";
+/* 演示视频：2026-09-23 发布到 B 站；已用官方接口核验（时长 160 秒、状态已发布、简介 1239 字） */
+var VIDEO_URL = "https://www.bilibili.com/video/BV1sthb6iECB/";
 var videoLink = document.getElementById('videoLink');
 if (VIDEO_URL) {
   videoLink.href = VIDEO_URL;
+  videoLink.target = '_blank';
+  videoLink.rel = 'noopener';
 } else {
   // 没有真实链接时不留死链：改成一句说明，避免评委点到 404
   videoLink.removeAttribute('href');

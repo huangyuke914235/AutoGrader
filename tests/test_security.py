@@ -16,16 +16,28 @@ sys.path.insert(0, ROOT)
 ID_PATTERN = r"\b(?:19|20)\d{8,9}\b"
 
 
-def _known_names():
-    """从不受 git 跟踪的本地清单里取已知姓名（没有就返回空列表）"""
+def _load_local_cfg():
+    """从不受 git 跟踪的本地清单读取（里面才有真实姓名）"""
     cfg = os.path.join(ROOT, "tools", "sources.local.json")
     if not os.path.exists(cfg):
-        return []
+        return {}
     try:
-        return [n for n in json.load(open(cfg, encoding="utf-8")).get("known_names", [])
-                if n]
+        return json.load(open(cfg, encoding="utf-8"))
     except Exception:
-        return []
+        return {}
+
+
+def _forbidden_names():
+    """需要脱敏的姓名（样本作者）——**排除团队成员本人**。
+
+    两类姓名必须分开看：
+    - 学生作业作者的姓名：属于被脱敏对象，绝不能进公开仓库；
+    - 团队成员自己的姓名：参赛材料必须署名，是他们主动公开的选择。
+    （2026-09-23 填完团队信息后这两类第一次发生重叠，于是拆开处理。）
+    """
+    cfg = _load_local_cfg()
+    team = set(cfg.get("team_names", []))
+    return [n for n in cfg.get("known_names", []) if n and n not in team]
 
 
 def test_no_student_id_in_tracked_files():
@@ -40,8 +52,8 @@ def test_no_student_id_in_tracked_files():
     assert not hits, f"受跟踪文件里出现了疑似学号：{hits[:3]}"
 
 
-def test_no_known_name_in_tracked_files():
-    names = _known_names()
+def test_no_author_name_in_tracked_files():
+    names = _forbidden_names()
     if not names:
         pytest.skip("本地清单不可用，跳过姓名检查")
     try:
@@ -52,7 +64,19 @@ def test_no_known_name_in_tracked_files():
     if out.returncode not in (0, 1):
         return
     hits = [l for l in out.stdout.splitlines() if l.strip()]
-    assert not hits, "受跟踪文件里出现了已知真实姓名"
+    assert not hits, f"受跟踪文件里出现了作业作者姓名（非团队成员）：{hits[:3]}"
+
+
+def test_team_names_are_expected_in_submission_materials():
+    """团队成员姓名出现在参赛材料里是**预期行为**，不算泄露"""
+    team = _load_local_cfg().get("team_names", [])
+    if not team:
+        pytest.skip("本地清单未配置 team_names")
+    readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
+    html = open(os.path.join(ROOT, "docs", "index.html"), encoding="utf-8").read()
+    for n in team:
+        assert n in readme, f"README 未署名团队成员 {n}（参赛材料必须署名）"
+        assert n in html, f"主页未署名团队成员 {n}"
 
 
 def test_sources_config_is_ignored():

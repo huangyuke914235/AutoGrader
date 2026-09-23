@@ -456,6 +456,21 @@ def run_grading(full_text: str, sections, raw_rubric: str,
     health = P.inspect_text(full_text, len(sections))
     for w in health["warnings"]:
         print(f"[parser] {w}")          # 解析警告必须出声，不能静默评分
+
+    # 召回模式下的 miss 不可信：我们只给模型看了正文的一部分，
+    # 它说"找不到"可能只是没召回到。这种情况一律转人工，绝不当成"学生没写"。
+    if health["coverage"] == "retrieved":
+        flagged = 0
+        for j in judgements:
+            if j.verdict == "miss" and not j.system_error:
+                j.needs_review = True
+                j.reason = (j.reason or "") + \
+                    "（正文超长、上下文为关键词召回，判 miss 可能源于召回遗漏，需人工确认）"
+                flagged += 1
+        if flagged:
+            print(f"[pipeline] 召回模式：{flagged} 个 miss 判定已强制转人工复核"
+                  f"（只看到部分正文时，'找不到依据'不能当作学生没做到）")
+
     info = RunInfo(
         created_at=datetime.datetime.now().isoformat(timespec="seconds"),
         model=get_env("LLM_MODEL", ""),

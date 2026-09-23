@@ -307,7 +307,13 @@ def parse_file(path: str):
     return full_text, sections
 
 
-FULL_TEXT_LIMIT = 40000   # 约 27k tokens；正确性优先，超长文档才走召回
+FULL_TEXT_LIMIT = 70000   # 约 45k tokens；正确性优先，只有更长的文档才走召回
+# 为什么从 40000 提到 70000（2026-09-23 实测）：
+#   S06（67779 字）原先走召回，而召回预算最多只覆盖全文 31%，
+#   结果 r3/r4/r5 三项直接判 0（人工分别是 14/4/3 分），总分 27 vs 人工 43 —— **系统性假阴性**。
+#   提高上限后，这类文档直接给全文，从根上避免"没看到就判没有"。
+#   代价：单次调用上下文变大（token 成本与延迟上升），这是为正确性付的钱。
+#   已发布的 9 份指标不受影响：它们都在 2.5 万字以内，本来就走的全文模式。
 
 
 def build_context(sections, full_text: str, keywords=None, top_k: int = 6,

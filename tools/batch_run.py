@@ -54,6 +54,8 @@ def main():
     ap.add_argument("--include-long", action="store_true",
                     help="不跳过超长报告（超长会走关键词召回，结果里标明 retrieved 模式）")
     ap.add_argument("--only", nargs="*", help="只跑指定报告，例如 --only S06")
+    ap.add_argument("--update-latest", action="store_true",
+                    help="即使是 --only 局部批次也更新 batch_latest.json（默认不更新，防止污染对外指标）")
     args = ap.parse_args()
     enable_recheck = not args.no_recheck
 
@@ -139,9 +141,18 @@ def main():
     }
     p = os.path.join(ROOT, "data", "results", f"batch_v2_{ts}.json")
     json.dump(payload, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-    latest = os.path.join(ROOT, "data", "results", "batch_latest.json")
-    json.dump(payload, open(latest, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-    print(f"\n结果已写入 {p}（旧结果未被覆盖）")
+    # batch_latest.json 是 benchmark 的默认输入，也就是对外指标的来源。
+    # 局部批次（--only）绝不能覆盖它：否则 benchmark 会拿"只有 1 份报告"的批次算出对外指标，
+    # 这种污染比数字难看严重得多。要覆盖必须显式加 --update-latest。
+    if args.only and not args.update_latest:
+        print(f"\n结果已写入 {p}（旧结果未被覆盖）")
+        print("⚠ 本次是局部批次（--only），**未更新 batch_latest.json**，"
+              "因此不会影响 benchmark 的对外指标口径。")
+    else:
+        latest = os.path.join(ROOT, "data", "results", "batch_latest.json")
+        json.dump(payload, open(latest, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        print(f"\n结果已写入 {p}（旧结果未被覆盖）")
+        print("已更新 batch_latest.json（benchmark 的默认输入）")
 
 
 if __name__ == "__main__":

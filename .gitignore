@@ -18,3 +18,7 @@ tools/sources.local.json
 # 内部材料（整改报告 / 提交自查 / 部署指南）：不进公开仓库
 _internal/
 data/cases_full/
+
+# 视频素材与成片（体积大，走提交专区上传，不进仓库）
+video_out/
+AutoGrader-*.mp4

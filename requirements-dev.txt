@@ -1,2 +1,5 @@
-# 开发/测试依赖（运行应用本身只需要 requirements.txt）
-pytest>=8.0
+# 开发与工具链依赖（运行应用本身只需要 requirements.txt）
+pytest==9.1.1
+# 工具脚本需要：make_gold_sheet / seal_gold / import_gold（打分表）、make_ppt（PPT 生成）
+openpyxl==3.1.5
+python-pptx==1.0.2

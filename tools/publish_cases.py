@@ -17,9 +17,11 @@ import sys
 import json
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CASES = os.path.join(ROOT, "docs", "cases")
+SRC = os.path.join(ROOT, "data", "cases_full")     # 全量中间产物（gitignore）
+CASES = os.path.join(ROOT, "docs", "cases")        # 公开目录：只由本脚本写
 WINDOW = 500          # 每条证据左右各保留的字符数
 MAX_TOTAL = 6000      # 窗口拼接后的总上限
+MANIFEST = os.path.join(CASES, "manifest.json")    # 主页案例列表的唯一来源
 
 
 def build_public_text(full_text, judgements):
@@ -60,25 +62,55 @@ def build_public_text(full_text, judgements):
     return "\n\n".join(parts)
 
 
+def check_public(data: dict):
+    """公开产物的自检：任何一条不合格都不许写出，宁可失败也不许把全文发出去"""
+    problems = []
+    text = data.get("full_text", "")
+    if not data.get("_is_public"):
+        problems.append("缺少 _is_public 标记")
+    if len(text) > MAX_TOTAL + 500:
+        problems.append(f"正文 {len(text)} 字，超过公开上限")
+    import re
+    for label, pat in (("疑似学号", r"\b(?:19|20)\d{8,9}\b"),
+                       ("疑似手机", r"\b1[3-9]\d{9}\b"),
+                       ("疑似邮箱", r"[\w.+-]+@[\w-]+\.[\w.]+")):
+        if re.search(pat, text):
+            problems.append(f"命中{label}")
+    return problems
+
+
 def main():
-    if not os.path.isdir(CASES):
-        print("没有 docs/cases/ 目录，请先运行 tools/make_demo.py")
+    src = SRC if os.path.isdir(SRC) else CASES     # 兼容旧流程
+    if not os.path.isdir(src):
+        print("找不到源案例目录，请先运行 tools/make_demo.py")
         sys.exit(1)
-    n = 0
-    for fn in sorted(os.listdir(CASES)):
-        if not fn.endswith(".json") or fn.endswith(".public.json"):
+    os.makedirs(CASES, exist_ok=True)
+
+    n, published = 0, []
+    for fn in sorted(os.listdir(src)):
+        if not fn.endswith(".json") or fn == "manifest.json":
             continue
-        data = json.load(open(os.path.join(CASES, fn), encoding="utf-8"))
-        if "_is_public" in data:
-            continue
-        data["full_text"] = build_public_text(data["full_text"], data["judgements"])
-        data["_is_public"] = True
-        data["_note"] = "正文已裁剪为证据片段窗口，仅用于公开演示"
-        out = os.path.join(CASES, fn)
-        json.dump(data, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-        print(f"  {fn}：已裁剪为 {len(data['full_text'])} 字窗口")
+        raw = json.load(open(os.path.join(src, fn), encoding="utf-8"))
+        raw["full_text"] = build_public_text(raw["full_text"], raw["judgements"])
+        raw["_is_public"] = True
+        raw["_note"] = "正文已裁剪为证据片段窗口，仅用于公开演示"
+
+        problems = check_public(raw)
+        if problems:
+            print(f"  ❌ {fn} 未通过公开自检：{problems}")
+            sys.exit(1)                     # 宁可失败，也不把不合规的内容写进公开目录
+
+        json.dump(raw, open(os.path.join(CASES, fn), "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=1)
+        published.append(fn.replace(".json", ""))
+        print(f"  {fn}：已裁剪为 {len(raw['full_text'])} 字窗口")
         n += 1
-    print(f"\n完成 {n} 个案例。现在可以安全 Push 到公开仓库。")
+
+    json.dump({"cases": sorted(published), "generated_at": __import__("datetime")
+               .datetime.now().isoformat(timespec="seconds")},
+              open(MANIFEST, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    print(f"\n完成 {n} 个案例，并生成 manifest.json（主页案例列表从这里读）。")
+    print("现在可以安全 Push 到公开仓库。")
 
 
 if __name__ == "__main__":

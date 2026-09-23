@@ -43,8 +43,17 @@ def test_fabricated_evidence_dropped():
 def test_all_evidence_fake_fails_and_keeps_record():
     j = jd(quotes=("凭空捏造的一句话啊", "另一句凭空捏造的话啊"))
     assert verify_evidence(j, FULL) is False
-    # 不合格的引用仍在 evidence（界面可见），但不重复计入 dropped
-    assert j.dropped_quotes == []
+    # 全部记进 dropped，同时清空 evidence：分母既不会重复计数，也不会漏掉最差的那批引用
+    assert len(j.dropped_quotes) == 2
+    assert j.evidence == []
+
+
+def test_degraded_judgement_keeps_rejected_quotes_for_metrics():
+    j = jd(quotes=("凭空捏造的一句话啊",))
+    verify_evidence(j, FULL)
+    safe = degrade_for_evidence_failure(j, ITEM)
+    assert safe.evidence == []
+    assert safe.dropped_quotes == ["凭空捏造的一句话啊"], "被作废的引用必须计入可溯源率的分母"
 
 
 def test_too_short_quote_dropped():

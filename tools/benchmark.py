@@ -29,8 +29,12 @@ import argparse
 import datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 GOLD = os.path.join(ROOT, "data", "gold", "gold.json")
 BATCH = os.path.join(ROOT, "data", "results", "batch.json")
+
+import metrics                      # 对外指标的唯一计算口径
+import parser as P
 
 
 def pick_batch(path=None):
@@ -111,32 +115,22 @@ def main():
     #   2) 被校验剔除的引用（dropped）一律计入分母且算不可溯源 ——
     #      可溯源率衡量的是「模型原始产出的引用」有多少能回溯，
     #      只统计幸存者会让这个数字虚高。
-    import sys
-    sys.path.insert(0, ROOT)
-    import parser as P
-
     checked = 0
     traceable = 0
     dropped_n = 0
     cache = {}
+    records = []
     for r in compared:
         rid = r["report_id"]
         if rid not in cache:
             raw = load_text(rid)
             cache[rid] = P.canonical(raw) if raw else None
-        text = cache[rid]
         for d in ai[rid]["details"]:
-            quotes = list(d.get("evidence", []) or [])
-            dropped = list(d.get("dropped", []) or [])
-            dropped_n += len(dropped)
-            if not quotes and not dropped:
-                continue
-            for q in quotes:
-                checked += 1
-                if text and q and len(q) >= 6 and q in text:
-                    traceable += 1
-            checked += len(dropped)          # 被剔除的：计入分母，不算可溯源
-    trace = round(100 * traceable / checked, 1) if checked else 0.0
+            dropped_n += len(d.get("dropped", []) or [])
+            records.append((d, cache[rid] or ""))
+    # 口径统一走 metrics.py（界面与 benchmark 不再可能出现两个数）
+    checked, traceable = metrics.traceability_from_details(records)
+    trace = metrics.traceability_rate(checked, traceable)
 
     # ---- 逐项：人工判定 vs 系统判定 一致率 ----
     agree = total_items = 0
@@ -190,6 +184,23 @@ def main():
     if not_eval:
         print(f"\n⚠ 未参与评测：{not_eval}（系统因超长跳过，人工分仍在 gold.json 里）")
 
+    # 区分度：把"天花板效应"从主观判断变成可测量的量
+    disc = metrics.discrimination([r["ai"] for r in compared])
+    # 封存凭证：**原样输出** gold 里的字段，不自己推一个 blind 布尔值出来（那是自证）
+    seal = {k: gold.get(k, "") for k in
+            ("scorer", "scorer_role", "scored_date", "minutes_spent",
+             "independent", "no_ai_reference", "seal_note")}
+    missing_seal = [k for k in ("scorer", "scorer_role", "scored_date")
+                    if not str(seal.get(k) or "").strip()]
+    if missing_seal:
+        print(f"\n⚠ 封存记录不完整（缺 {missing_seal}）：这份 gold set 的独立性缺少凭证。")
+        print("  补录方法： python tools/import_gold.py --scorer <姓名> --role <专业/分工> "
+              "--scored-date <日期> --seal-note 补录")
+    else:
+        print(f"\n封存凭证：打分人 {seal['scorer']}（{seal['scorer_role']}）"
+              f"，日期 {seal['scored_date']}，独立完成={seal['independent']}，"
+              f"未参考 AI={seal['no_ai_reference']}")
+
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     out = {
         "version": "v2",
@@ -197,9 +208,8 @@ def main():
         "batch_file": os.path.basename(batch_path),
         "dataset": {"reports": len(compared), "not_evaluated": not_eval,
                     "gold_created_at": gold.get("created_at", ""),
-                    "gold_scorer": gold.get("scorer", ""),
-                    "blind": gold.get("independent") == "是"
-                             and gold.get("no_ai_reference") == "是"},
+                    "seal_raw": seal,                 # 原样保留，不做布尔化推断
+                    "seal_missing_fields": missing_seal},
         "config": cfg,
         "metrics": {"mae": mae, "acc_within_5": acc5, "traceability": trace,
                     "pearson": corr, "item_agreement": item_acc,
@@ -208,9 +218,12 @@ def main():
                     "checked_quotes": checked, "traceable_quotes": traceable,
                     "dropped_quotes": dropped_n,
                     "latency_sec_total": round(sum(latency), 1),
-                    "tokens_total": sum(tokens)},
+                    "tokens_total": sum(tokens),
+                    "discrimination": disc},
         "rows": rows,
     }
+    print(f"区分度：满分 {disc['perfect_count']}/{disc['n']} 份"
+          f"（{disc['perfect_ratio']}%），极差 {disc['range']}，标准差 {disc['stdev']}")
     p = os.path.join(ROOT, "data", "results", f"benchmark_v2_{ts}.json")
     json.dump(out, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
     print(f"\n已写入 {p}（旧结果未被覆盖）")

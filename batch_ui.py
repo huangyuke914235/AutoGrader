@@ -68,16 +68,14 @@ def load_gold():
 
 
 def count_trace(res, full_text):
-    """证据可溯源率：把每条引用拿回原文精确匹配（硬校验，不放宽）"""
-    checked = ok = 0
-    for j in res.judgements:
-        for e in j.evidence:
-            if not e.quote:
-                continue
-            checked += 1
-            if len(e.quote) >= 6 and e.quote in full_text:
-                ok += 1
-    return checked, ok
+    """证据可溯源率：**与 benchmark 共用同一口径**（metrics.py）
+
+    过去这里只数"幸存的引用"，而幸存引用是已经通过原文校验的，结构上恒为 ~100%，
+    于是界面显示 ~100%、主页写 96.9% —— 同一件事两个数。
+    现在分母包含被剔除与被作废的引用，与 benchmark 完全一致。
+    """
+    import metrics
+    return metrics.traceability_from_judgements([(j, full_text) for j in res.judgements])
 
 
 def _read_report(path):

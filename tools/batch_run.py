@@ -51,11 +51,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-recheck", action="store_true",
                     help="关闭 G 阶段复核（结果文件里会明确记录，不能假装跑过）")
+    ap.add_argument("--include-long", action="store_true",
+                    help="不跳过超长报告（超长会走关键词召回，结果里标明 retrieved 模式）")
+    ap.add_argument("--only", nargs="*", help="只跑指定报告，例如 --only S06")
     args = ap.parse_args()
     enable_recheck = not args.no_recheck
 
     meta_path = os.path.join(ROOT, "data", "samples", "meta.json")
     meta = json.load(open(meta_path, encoding="utf-8"))
+    if args.only:
+        meta = [m for m in meta if m["report_id"] in set(args.only)]
     rub = Rubric(items=ITEMS)
     out = []
     skipped = []
@@ -63,9 +68,11 @@ def main():
 
     for m in meta:
         rid = m["report_id"]
-        if m.get("chars", 0) > MAX_CHARS:
-            skipped.append({"report_id": rid, "chars": m["chars"]})
+        if m.get("chars", 0) > MAX_CHARS and not args.include_long:
+            skipped.append({"report_id": rid, "chars": m["chars"],
+                            "reason": f"{m['chars']} 字 > {MAX_CHARS}，超长会触发检索召回"})
             print(f"{rid} 跳过（{m['chars']} 字 > {MAX_CHARS}，超长会触发检索召回，可能产生假阴性）")
+            print(f"      要单独验证超长路径：python tools/batch_run.py --only {rid} --include-long")
             continue
         full, secs = P.parse_file(os.path.join(ROOT, "data", "samples", rid + ".txt"))
         try:
@@ -85,12 +92,18 @@ def main():
                     # 只统计存活下来的引用会让这个数字虚高
                     "dropped": list(getattr(j, "dropped_quotes", []) or []),
                 })
+            info = json.loads(res.run_info.model_dump_json()) if res.run_info else {}
             out.append({
                 "report_id": rid, "total": res.total, "ai_total": res.ai_total,
                 "chars": m["chars"], "name": str(m.get("original", ""))[:30],
                 "elapsed_sec": res.elapsed_sec, "details": details,
-                "run_info": json.loads(res.run_info.model_dump_json()) if res.run_info else {},
+                # 超长报告走的是召回模式，必须标出来：这类结果的可信度低于全文模式
+                "coverage": info.get("parse_coverage", ""),
+                "total_incomplete": res.total_incomplete,
+                "run_info": info,
             })
+            if info.get("parse_coverage") == "retrieved":
+                print(f"{rid} ⚠ 本次为召回模式（正文超长），无法保证上下文完整")
             print(f"{rid}  {res.total:>5.1f} 分  {res.elapsed_sec:>5.1f}s  {m.get('original','')[:30]}")
         except Exception as e:
             failed.append({"report_id": rid, "error": f"{type(e).__name__}: {e}"})

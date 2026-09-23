@@ -17,3 +17,4 @@ tools/sources.local.json
 
 # 内部材料（整改报告 / 提交自查 / 部署指南）：不进公开仓库
 _internal/
+data/cases_full/

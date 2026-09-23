@@ -3,11 +3,12 @@
 
 启动：  streamlit run app.py
 
-四个标签页：
-  tab1 评阅   —— 上传报告 / 选样本 / 输入评分标准 / 跑流水线
+五个标签页：
+  tab1 评阅   —— 上传报告 / 选样本 / 输入评分标准 / 跑流水线（含原始版面对照）
   tab2 详情   —— 原文高亮对照 + 逐评分点卡片 + 人工覆盖改分
-  tab3 评分点 —— 原子化结果预览与分值编辑
-  tab4 导出   —— 成绩表 CSV / 结果 JSON
+  tab3 评分点 —— 原子化结果预览与分值编辑（改完必须合计正好 100）
+  tab4 导出   —— 成绩表 CSV / 结果 JSON（含 AI 分、最终分与改分记录）
+  tab5 批量测试 —— 多份批量评阅 / 同一份重复评阅（一致性）
 """
 import os
 import re
@@ -38,13 +39,23 @@ def _safe_display_name(name: str) -> str:
     return base[:60] or "未命名报告"
 
 
+_UPLOAD_CACHE = {}          # 只留最近一次上传的结果，避免每次交互都重新落盘 + 重渲染
+
+
 def load_uploaded(up):
     """上传 -> 解析 -> 渲染版面预览 -> 删除临时文件。
+
+    同一个文件在页面重跑时会被复用缓存结果：Streamlit 每次交互都会重跑整个脚本，
+    旧实现会让"点一次应用改分"触发一次重新落盘 + 重新渲染 20 页 PDF。
 
     report_id 用随机 UUID（不参与任何路径拼接），原始文件名只保留净化后的展示名；
     临时文件无论成败都在 finally 中删除。
     版面预览必须在删除临时文件**之前**渲染，且只保存在内存里，不落盘。
     """
+    key = f"{getattr(up, 'file_id', '')}:{up.name}:{getattr(up, 'size', '')}"
+    if _UPLOAD_CACHE.get("key") == key:
+        return _UPLOAD_CACHE["value"]
+
     tmp = _save_upload_to_temp(up)
     try:
         full_text, sections = P.parse_file(tmp)
@@ -58,8 +69,17 @@ def load_uploaded(up):
             os.remove(tmp)
         except OSError as e:
             print(f"[warn] 临时上传文件未能删除：{tmp}（{e}）")
-    return (full_text, sections, "UP-" + uuid.uuid4().hex[:8],
-            _safe_display_name(up.name), images, total_pages)
+    value = (full_text, sections, "UP-" + uuid.uuid4().hex[:8],
+             _safe_display_name(up.name), images, total_pages)
+    _UPLOAD_CACHE.clear()
+    _UPLOAD_CACHE.update(key=key, value=value)
+    return value
+
+
+@st.cache_data(show_spinner=False)
+def _render_cached(path: str, mtime: float, max_pages: int):
+    """样本的版面渲染结果按「路径 + 修改时间」缓存，避免每次交互都重渲染"""
+    return P.render_pdf_pages(path, max_pages=max_pages)
 
 
 def load_sample(pick):
@@ -70,7 +90,8 @@ def load_sample(pick):
     orig = os.path.join(ROOT, "data", "raw", rid + ".pdf")
     if os.path.exists(orig):
         try:
-            images, total_pages = P.render_pdf_pages(orig), P.pdf_page_count(orig)
+            images = _render_cached(orig, os.path.getmtime(orig), P.PREVIEW_MAX_PAGES)
+            total_pages = P.pdf_page_count(orig)
         except Exception as e:
             print(f"[warn] 样本版面渲染失败（不影响评阅）：{type(e).__name__}: {e}")
     return full_text, sections, rid, images, total_pages
@@ -88,15 +109,57 @@ def show_page_preview():
             st.image(img, caption=f"第 {i} 页", use_container_width=True)
 
 
+def sweep_stale_uploads(days: int = 1):
+    """启动时清扫超期的上传残留（正常路径都会在 finally 里删掉，这里是兜底）"""
+    if not os.path.isdir(TMPDIR):
+        return 0
+    cutoff = time.time() - days * 86400
+    n = 0
+    for name in os.listdir(TMPDIR):
+        p = os.path.join(TMPDIR, name)
+        try:
+            if os.path.isfile(p) and os.path.getmtime(p) < cutoff:
+                os.remove(p)
+                n += 1
+        except OSError:
+            pass                   # 删不掉就留着，下次再试
+    if n:
+        print(f"[cleanup] 清掉 {n} 个超期上传残留（>{days} 天）")
+    return n
+
+
+ALLOWED_EXTS = (".pdf", ".docx", ".txt", ".md")
+
+
+def _sniff_ok(data: bytes, ext: str) -> bool:
+    """粗略校验文件内容与扩展名是否一致（防止把二进制改名成 .txt 混进来）"""
+    if ext in (".txt", ".md"):
+        return b"\x00" not in data[:4096]          # 文本文件不该含 NUL 字节
+    if ext == ".pdf":
+        return data[:5] == b"%PDF-"
+    if ext == ".docx":
+        return data[:2] == b"PK"                    # docx 本质是 zip
+    return False
+
+
 def _save_upload_to_temp(up) -> str:
-    """把上传内容写进受控临时目录，文件名用 UUID，避免路径穿越与同名覆盖"""
+    """把上传内容写进受控临时目录，文件名用 UUID，避免路径穿越与同名覆盖。
+
+    扩展名不在白名单、或内容与扩展名明显不符时**直接拒绝**——
+    旧实现把未知扩展名静默当成 .txt，二进制文件会被评出满屏 miss，
+    比拒绝上传糟糕得多。
+    """
     os.makedirs(TMPDIR, exist_ok=True)
     ext = os.path.splitext(_safe_display_name(up.name))[1].lower()
-    if ext not in (".pdf", ".docx", ".txt", ".md"):
-        ext = ".txt"
+    if ext not in ALLOWED_EXTS:
+        raise ValueError(f"不支持的文件类型 {ext or '（无扩展名）'}，"
+                         f"只接受 {'、'.join(ALLOWED_EXTS)}")
+    data = up.getbuffer()
+    if not _sniff_ok(bytes(data[:4096]), ext):
+        raise ValueError(f"文件内容与扩展名 {ext} 不符（可能被改过名），已拒绝上传")
     path = os.path.join(TMPDIR, f"{uuid.uuid4().hex}{ext}")
     with open(path, "wb") as f:
-        f.write(up.getbuffer())
+        f.write(data)
     return path
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -182,6 +245,8 @@ with st.sidebar:
 st.title("AutoGrader · 实验报告智能评阅平台")
 st.caption("把老师的评分标准变成可核查、可溯源、可校准的判定流水线")
 
+sweep_stale_uploads()      # 兜底清扫超期上传残留（正常路径都会在 finally 里删掉）
+
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
     ["① 评阅", "② 详情对照", "③ 评分点", "④ 导出", "⑤ 批量测试"])
 
@@ -214,8 +279,15 @@ with tab1:
                     st.error(f"文件过大（{up.size/1048576:.1f}MB），上限 20MB。")
                     full_text, sections, report_id = "", [], ""
                 else:
-                    full_text, sections, report_id, disp, imgs, total_pages = load_uploaded(up)
-                    st.session_state["display_name"] = disp
+                    try:
+                        full_text, sections, report_id, disp, imgs, total_pages = load_uploaded(up)
+                    except ValueError as e:
+                        st.error(f"上传被拒绝：{e}")
+                        full_text, sections, report_id, imgs, total_pages = "", [], "", [], 0
+                    except Exception as e:
+                        st.error(f"解析失败（{type(e).__name__}）：{e}")
+                        full_text, sections, report_id, imgs, total_pages = "", [], "", [], 0
+                    st.session_state["display_name"] = disp if full_text else ""
                     st.session_state["page_images"] = imgs
                     st.session_state["page_images_total"] = total_pages
             else:
@@ -318,6 +390,14 @@ with tab2:
             if syserr:
                 st.error(f"有 {syserr} 个评分点因**系统错误**未能判定（不是学生失分），"
                          f"必须由教师人工给分：见下方逐项卡片里的红色提示。")
+            if getattr(res, "total_incomplete", False):
+                st.warning("⚠ 本次总分**不完整**：有评分点因系统错误未判定，"
+                           "该分数不应被当作最终成绩，也不应计入任何误差统计。")
+            if res.run_info and res.run_info.injection_hits:
+                st.info("检测到报告中有疑似操纵评分的表述："
+                        + "、".join(res.run_info.injection_hits)
+                        + "（仅对证据落在命中位置附近的评分点标记了待复核；"
+                          "我们不会改动学生原文）")
             if ov_n:
                 st.caption(f"已应用 {ov_n} 处人工改分；AI 原始总分 {res.ai_total}，"
                            f"最终总分 {res.total}。导出文件里两者都会保留。")
@@ -349,6 +429,12 @@ with tab2:
                     if j.system_error:
                         st.error(f"**系统错误，非学生失分**：{j.system_error}")
                     st.caption(j.reason)
+                    if j.verdict == "miss":
+                        # 零风险的"缺什么"提示：直接用评分标准里已写好的要求，
+                        # 不对 miss 放宽任何规则，也不额外让模型多说一句
+                        need = [s for s in item.positive_signals if s and s != "无"]
+                        if need:
+                            st.caption("该评分点要求包含：" + "、".join(need[:5]))
                     for e in j.evidence:
                         st.markdown(f"> 「{e.quote}」　`{e.section_id}`")
                         if st.button("定位", key=f"loc_{item.id}_{e.char_start}"):
@@ -407,13 +493,20 @@ with tab3:
         st.markdown("---")
         st.markdown(f"**合计分值：{round(total,1)}**" + ("　✅" if abs(total - 100) < 0.01 else "　⚠ 不等于 100"))
         if st.button("校验并应用这套评分点"):
+            # 没点「生成评分点」直接评阅时，session_state["rubric"] 为空、这里退回的是 list，
+            # 旧实现在这种情况下会抛 AttributeError 把界面打崩 —— 统一包成 Rubric。
+            rub_obj = rub if isinstance(rub, Rubric) else Rubric(items=list(rub))
             try:
-                validate_rubric(rub)
+                # normalize=False：教师手设的分值必须合计正好 100，不允许按比例缩放
+                validate_rubric(rub_obj, normalize=False)
+                st.session_state["rubric"] = rub_obj
                 st.session_state["result"] = None    # 评分点变了，旧结果作废
                 st.success("校验通过（满分合计 100、id 唯一、分值均为正数），已应用；"
                            "之前的评阅结果已作废，请重新评阅。")
             except RubricError as e:
                 st.error(f"校验未通过，未应用：{e}")
+            except Exception as e:
+                st.error(f"校验未通过（{type(e).__name__}）：{e}")
 
 # ---------- tab4 导出 ----------
 with tab4:

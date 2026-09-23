@@ -126,6 +126,8 @@ class RunInfo(BaseModel):
     tokens: int = 0
     failed_calls: int = 0
     json_repaired: int = 0
+    system_errors: int = 0           # 本次有几个评分点因系统错误未判定
+    injection_hits: List[str] = Field(default_factory=list)   # 命中的评分操纵指令特征
 
 
 class GradingResult(BaseModel):
@@ -135,6 +137,8 @@ class GradingResult(BaseModel):
     judgements: List[ItemJudgement] = Field(default_factory=list)
     total: float = 0.0
     ai_total: float = 0.0            # AI 原始总分（人工改分后仍保留，便于对照）
+    # 有评分点因系统错误未判定时，这个总分是不完整的，不能拿去算 MAE
+    total_incomplete: bool = False
     feedback: Optional[Feedback] = None
     model: str = ""
     elapsed_sec: float = 0.0

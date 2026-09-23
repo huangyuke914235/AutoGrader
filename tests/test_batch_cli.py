@@ -111,7 +111,11 @@ def test_benchmark_reads_latest_and_writes_versioned(tmp_path):
     outs = glob.glob(os.path.join(str(tmp_path), "data", "results", "benchmark_v2_*.json"))
     assert outs, "没有生成版本化 benchmark"
     data = json.load(open(outs[0], encoding="utf-8"))
-    assert data["dataset"]["blind"] is True
+    # 封存凭证原样输出（不自己推 blind 布尔值——那是自证）
+    seal = data["dataset"]["seal_raw"]
+    assert seal["scorer"] == "测试评分人"
+    assert seal["independent"] == "是"
     assert data["config"]["enable_recheck"] is True
     assert "mae" in data["metrics"] and "pearson" in data["metrics"]
     assert "review_rate" in data["metrics"] and "system_error_rate" in data["metrics"]
+    assert "discrimination" in data["metrics"], "区分度（天花板效应的量化）必须一起报出来"

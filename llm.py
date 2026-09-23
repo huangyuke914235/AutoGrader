@@ -328,9 +328,12 @@ def verify_evidence(judgement, full_text: str) -> bool:
     good, dropped = split_evidence(judgement, full_text)
 
     if not good:
-        # 一条合格引用都没有：不合格的原样留在 evidence（教师界面还能看到模型当时引了什么），
-        # 但不再记进 dropped_quotes，否则可溯源率的分母会把同一批引用数两遍。
-        judgement.dropped_quotes = []
+        # 一条合格引用都没有：全部记进 dropped_quotes，**同时清空 evidence**。两个理由：
+        #  1) 清空 evidence，避免同一批引用在可溯源率的分母里被数两遍；
+        #  2) 记进 dropped，保证"最差的那批引用"仍然计入分母 ——
+        #     否则整条降级作废的判定会连同它的引用一起从分母里消失，让可溯源率虚高。
+        judgement.dropped_quotes = dropped
+        judgement.evidence = []
         return False
 
     judgement.dropped_quotes = dropped

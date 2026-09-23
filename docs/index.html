@@ -187,26 +187,35 @@
 更要紧的是顺着 84.9% 查下去发现的第三个缺陷：159 条引用里有 24 条没通过原文校验，其中绝大多数是 <strong>PDF 抽取把正文切得满是断行</strong>（S08/S09/S10 平均每 19 字一个换行），模型引用的是通顺的句子，逐字匹配自然对不上；另有 10 条引用因为短于 6 个字被我们的规则判死。<strong>两类失败都会触发「作废重跑」，两次不过就把整条判定降级为 0 分</strong>——这一轮有 11 个评分点因此被判死，而它们引用的证据其实都真实存在于报告里（<a class="repoDoc" href="#" data-doc="docs/bugfix-引用匹配与PDF断行.md">排查记录</a>）。</p>
 <p style="font-size:14px;color:var(--tx2);margin-top:10px">
 部署上线后还栽过第二个跟头：评语区显示「反馈生成失败」，而我们把异常吞进了 <code>except Exception</code>，查不到原因。最后是在做另一项功能测试时被顺带炸出来的——模型吐的 JSON 里带了未转义的半角引号（<a class="repoDoc" href="#" data-doc="docs/bugfix-反馈生成失败.md">排查与修复记录</a>）。那次修复只解决「怎么把模型输出读成 JSON」，<strong>没有改动任何一处证据匹配规则</strong>。<br>
-<strong>所以下面挂的是最新一次完整重测的数字，不是我们跑得最好的那一次。</strong></p>
+<strong>所以下面挂的是最新一轮完整评测的数字，而且是区间——同一份代码跑了两次，我们不取最好的一次。</strong></p>
 <div class="cards">
   <div class="card"><div class="k">平均绝对误差 MAE</div><div class="v" id="m1">—</div></div>
   <div class="card"><div class="k">误差 ≤5 分占比</div><div class="v" id="m2">—</div></div>
   <div class="card"><div class="k">证据可溯源率</div><div class="v" id="m3">—</div></div>
 </div>
-<p class="sub" style="margin-top:8px">上面三个数字是<strong>缺陷 #3 修复之前</strong>的完整重测值，我们选择把它作为对外主指标——保守的那一个。</p>
+<p class="sub" style="margin-top:8px">以上为最新一轮完整评测的区间值（9 份报告、固定评分标准、开启一致性复核）。
+<strong>保守口径</strong>：缺陷 #3 修复前的那一轮为 20.44 分 / 0% / 84.9%，我们在下方表格中单独标注，
+作为「最小承诺」——不希望评委只看到修完之后的好数字。</p>
 <table>
 <tr><th style="width:34%">四次完整评测（同一批报告、同一份 gold set）</th><th>MAE</th><th>误差 ≤5 分占比</th><th>证据可溯源率</th></tr>
-<tr><td>缺陷 #3 修复前</td><td><strong>20.44</strong></td><td>0%</td><td>84.9%</td></tr>
+<tr><td>缺陷 #3 修复前（<strong>保守口径</strong>）</td><td><strong>20.44</strong></td><td>0%</td><td>84.9%</td></tr>
 <tr><td>缺陷 #3 修复后</td><td>7.56</td><td>33.3%</td><td>93.0%</td></tr>
 <tr><td>深度整改后 · 第 1 次（含 G 阶段复核）</td><td>6.89</td><td>44.4%</td><td>97.0%</td></tr>
 <tr><td>深度整改后 · 第 2 次（同代码，重跑）</td><td>6.67</td><td>33.3%</td><td>96.9%</td></tr>
 </table>
 <p style="font-size:13px;color:var(--tx2);margin-top:8px">
-后两行是<b>同一份代码、相隔半天跑的两次完整评测</b>（均开启一致性复核）：
-MAE 落在 <b>6.67 ~ 6.89</b>，误差≤5 占比 33.3% ~ 44.4%，可溯源率 96.9% ~ 97.0%，
-Pearson 0.907 ~ 0.936，系统失败率 0%。我们给出区间而不是单次最优值。<br>
-<b>已知局限</b>：模型对高水平报告的区分度有限（高分区得分密集）；
-不支持图片与截图内容（无 OCR）；评语生成偶发格式失败时自动退回规则兜底，评分与证据不受影响。</p>
+后两行是<b>同一份代码跑的两次完整评测</b>：MAE 落在 <b>6.67 ~ 6.89</b>，
+误差≤5 占比 33.3% ~ 44.4%，可溯源率 96.9% ~ 97.0%，Pearson 0.907 ~ 0.936，系统失败率 0%。
+我们给出区间而不是单次最优值。<br>
+<b>评测配置</b>（这些数字的适用条件，缺了就没法解读）：9 份真实报告 · 固定 5 项评分标准
+（不用模型现场生成的评分点，否则与人工分的维度对不上）· 开启 G 阶段一致性复核 ·
+模型 deepseek-chat · 评测时间 2026-09-23 · 完整记录见仓库 <code>data/results/benchmark_v2_*.json</code>。<br>
+<b>统计口径说明</b>：n = 9，样本量偏小，指标存在抽样波动（同代码两次跑分，误差≤5 占比相差 11.1 个百分点）；
+完全盲测需要重新收集一批未见过的报告并交由第三方封存，已列入后续计划。<br>
+<b>区分度（把"天花板效应"量化）</b>：9 份中 4 份得满分（44.4%），极差 50 分，标准差 18.13 ——
+高分区的区分度确实不足，这是我们下一步要解决的机制问题，而不是一句"已知局限"。
+<b>其它局限</b>：不支持图片与截图内容（无 OCR）；
+评语生成偶发格式失败时自动退回规则兜底，评分与证据不受影响。</p>
 <p style="font-size:13px;color:var(--tx2);margin-top:8px">
 必须交代清楚：这几处修复<strong>都发生在 gold set 解封之后</strong>——
 是我们先发现了"系统性地把好报告判低"这个信号，再顺藤摸瓜定位到工程缺陷的，
@@ -250,21 +259,43 @@ S07 回到 65 分。<strong>到此为止我们不再为降低这个数字改动�
 /* ====== 链接：DEMO_URL 待 Streamlit 部署成功后填写 ====== */
 var DEMO_URL  = "https://autograder-szu.streamlit.app";
 var REPO_URL  = "https://github.com/huangyuke914235/AutoGrader";
-var VIDEO_URL = "https://www.bilibili.com/video/xxxx";
-document.getElementById('demoLink').href  = DEMO_URL;
-document.getElementById('repoLink').href  = REPO_URL;
-document.getElementById('videoLink').href = VIDEO_URL;
+/* 视频链接：录完把下面这行换成真实地址即可（占位符会被下面的判断识别，不会放死链出去） */
+var VIDEO_URL = "";
+var videoLink = document.getElementById('videoLink');
+if (VIDEO_URL) {
+  videoLink.href = VIDEO_URL;
+} else {
+  // 没有真实链接时不留死链：改成一句说明，避免评委点到 404
+  videoLink.removeAttribute('href');
+  videoLink.style.opacity = '.55';
+  videoLink.style.cursor = 'default';
+  videoLink.textContent = '演示视频见提交专区';
+  videoLink.title = '视频链接在提交专区表单中提供';
+}
 /* 正文里的「排查记录」链接也跟随 REPO_URL：
    把 REPO_URL 改成 Gitee 地址，整页（含文档链接）就一起切到镜像，不用逐个改 */
 document.querySelectorAll('.repoDoc').forEach(function(a){
   a.href = REPO_URL + '/blob/main/' + encodeURI(a.getAttribute('data-doc'));
 });
 
-/* ====== 公开案例列表，与 docs/cases/ 下的文件名一一对应 ====== */
+/* ====== 公开案例列表：优先读 docs/cases/manifest.json（防止列表与文件不一致） ====== */
 var CASES = ["S02", "S03", "S04"];
+fetch('cases/manifest.json')
+  .then(function(r){ return r.ok ? r.json() : null; })
+  .then(function(m){
+    if (m && m.cases && m.cases.length) {
+      CASES = m.cases;
+      var sel = document.getElementById('caseSel');
+      sel.innerHTML = '';
+      CASES.forEach(function(id){ var o = document.createElement('option'); o.value = id; o.textContent = id; sel.appendChild(o); });
+    }
+  })
+  .catch(function(){ /* 本地直接打开文件时 fetch 会失败，退回内置列表即可 */ });
 
-/* ====== 对外主指标：取基准集解封前的那一组（保守值） ====== */
-var METRICS = {mae: 20.44, acc: 0.0, trace: 84.9};
+/* ====== 主指标：最新一轮完整评测的**区间**（同一代码两次跑分，不取最好的一次） ====== */
+var METRICS = {mae: "6.67~6.89", acc: "33.3~44.4", trace: "96.9~97.0"};
+/* 保守口径（缺陷 #3 修复前）：20.44 / 0% / 84.9%，在下方表格中单独标注 */
+var METRICS_CONSERVATIVE = {mae: 20.44, acc: 0.0, trace: 84.9};
 
 var sel = document.getElementById('caseSel');
 CASES.forEach(function(c){

@@ -79,6 +79,37 @@ def test_team_names_are_expected_in_submission_materials():
         assert n in html, f"主页未署名团队成员 {n}"
 
 
+def test_public_cases_are_clipped_and_manifest_matches():
+    """公开案例必须都是裁剪版，且列表与文件一致
+
+    防守的场景：`tools/make_demo.py` 曾经直写 docs/cases/（带全文），
+    只要有人重跑一次且忘了跑 publish_cases.py，作业全文就进公开仓库了。
+    现在 make_demo 只写 data/cases_full/，并由本测试守住公开目录。
+    """
+    import glob as _glob
+    files = sorted(_glob.glob(os.path.join(ROOT, "docs", "cases", "*.json")))
+    files = [f for f in files if not f.endswith("manifest.json")]
+    assert files, "docs/cases/ 下没有公开案例"
+    ids = []
+    for f in files:
+        d = json.load(open(f, encoding="utf-8"))
+        name = os.path.basename(f)
+        assert d.get("_is_public") is True, f"{name} 未标记为公开裁剪版（可能被全文版本覆盖）"
+        assert len(d.get("full_text", "")) <= 6500, f"{name} 正文过长，疑似全文版本"
+        assert not re.search(ID_PATTERN, d.get("full_text", "")), f"{name} 正文含疑似学号"
+        ids.append(name.replace(".json", ""))
+    manifest = os.path.join(ROOT, "docs", "cases", "manifest.json")
+    assert os.path.exists(manifest), "缺少 manifest.json（主页案例列表的唯一来源）"
+    assert json.load(open(manifest, encoding="utf-8"))["cases"] == sorted(ids)
+
+
+def test_make_demo_does_not_write_public_dir():
+    """make_demo 的输出目录必须是 gitignored 的中间目录，绝不能是 docs/cases"""
+    src = open(os.path.join(ROOT, "tools", "make_demo.py"), encoding="utf-8").read()
+    assert 'CASES = os.path.join(ROOT, "data", "cases_full")' in src
+    assert '"docs", "cases"' not in src
+
+
 def test_sources_config_is_ignored():
     """本机样本清单必须被 .gitignore 排除"""
     gitignore = open(os.path.join(ROOT, ".gitignore"), encoding="utf-8").read()
@@ -90,6 +121,27 @@ def test_safe_display_name_blocks_traversal():
     assert "/" not in app._safe_display_name("../../etc/passwd.docx")
     assert "\\" not in app._safe_display_name("..\\..\\secret.docx")
     assert app._safe_display_name("") == "未命名报告"
+
+
+def test_renamed_binary_and_unknown_ext_are_rejected():
+    """改名的二进制文件、未知扩展名必须被拒绝，而不是被当成 txt 评出满屏 miss"""
+    import app
+
+    class Up:
+        def __init__(self, name, data):
+            self.name, self._d = name, data
+        def getbuffer(self):
+            return self._d
+
+    with pytest.raises(ValueError):
+        app._save_upload_to_temp(Up("report.docx", b"\x00\x01binary junk"))
+    with pytest.raises(ValueError):
+        app._save_upload_to_temp(Up("report.exe", b"MZ...."))
+    with pytest.raises(ValueError):
+        app._save_upload_to_temp(Up("noext", b"anything"))
+    # 正常的文本与 PDF 头应通过校验
+    assert app._sniff_ok(b"plain text", ".txt") is True
+    assert app._sniff_ok(b"%PDF-1.7", ".pdf") is True
 
 
 def test_csv_formula_injection_is_neutralized():
@@ -104,9 +156,9 @@ def test_upload_temp_file_is_removed_even_when_parse_fails(monkeypatch):
     import app
 
     class FakeUp:
-        name = "../../etc/passwd.docx"
+        name = "../../etc/passwd.txt"          # 纯文本，能通过内容与扩展名的一致性校验
         def getbuffer(self):
-            return b"fake-bytes"
+            return b"fake report body"
 
     removed = []
     monkeypatch.setattr(os, "remove", lambda p: removed.append(p))

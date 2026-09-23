@@ -5,7 +5,13 @@
     python tools/make_demo.py            # 默认 S02 S03 S04
     python tools/make_demo.py S01 S05    # 指定报告
 
-输出 docs/cases/S0x.json —— 即使评委打不开在线 demo，主页也能展示完整证据链。
+输出 **data/cases_full/S0x.json**（带全文的中间产物，已 gitignore）。
+
+为什么不直接写 docs/cases/：
+    那个目录是要 push 到公开仓库的。旧实现让本脚本直写 docs/cases/，
+    裁剪只做一次（靠 `_is_public` 标记跳过），**一旦有人重跑一次、又没跑 publish_cases.py，
+    作业全文就进公开仓库了**——没有任何自动闸门。
+    现在：全量中间产物与公开产物彻底分开，公开目录只能由 publish_cases.py 写。
 """
 import sys
 import os
@@ -18,7 +24,7 @@ from models import Rubric, RubricItem
 from pipeline import run_grading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CASES = os.path.join(ROOT, "docs", "cases")
+CASES = os.path.join(ROOT, "data", "cases_full")       # 中间产物（gitignore）
 
 ITEMS = [
     ("r1", "实验目的明确", "开头明确写出本次实验的目的与要掌握的能力", 15,
@@ -80,7 +86,8 @@ def main():
         ev = sum(1 for j in res.judgements if j.evidence)
         print(f"  -> {rid}.json  总分 {res.total}  "
               f"待复核 {nr}  带证据 {ev}/{len(res.judgements)}")
-    print("完成：案例已写入 docs/cases/")
+    print(f"完成：全量案例已写入 {os.path.relpath(CASES, ROOT)}/（该目录不进公开仓库）")
+    print("要发布到主页（docs/cases/）请接着跑： python tools/publish_cases.py")
 
 
 if __name__ == "__main__":

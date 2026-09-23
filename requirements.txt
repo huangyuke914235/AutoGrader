@@ -1,7 +1,11 @@
-streamlit>=1.36
-pymupdf>=1.24
-python-docx>=1.1
-openai>=1.40
-pydantic>=2.7
-pandas>=2.2
-python-dotenv>=1.0
+# 运行依赖（已钉版本：这些版本在本机完整跑通，交付前不再漂）
+#
+# 为什么不写 >=：Streamlit 的大版本行为会变（例如 use_container_width 的弃用），
+# 现场重装时拉到新版本可能直接改变界面行为，交付前不值得冒这个险。
+streamlit==1.64.0
+pymupdf==1.28.2
+python-docx==1.2.0
+openai==3.16.2
+pydantic==2.13.5
+pandas==3.0.6
+# 说明：项目自己实现了极简 .env 解析，**并没有** import python-dotenv，故不再列为依赖。

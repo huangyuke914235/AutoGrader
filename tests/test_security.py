@@ -164,16 +164,16 @@ def test_upload_temp_file_is_removed_even_when_parse_fails(monkeypatch):
     monkeypatch.setattr(os, "remove", lambda p: removed.append(p))
 
     # 情形一：解析失败
-    def boom(_p):
+    def boom(_p, **_kw):
         raise RuntimeError("解析炸了")
     monkeypatch.setattr(app.P, "parse_file", boom)
     with pytest.raises(RuntimeError):
         app.load_uploaded(FakeUp())
     assert len(removed) == 1 and "etc" not in removed[0], "失败也要删，且路径不能逃逸"
 
-    # 情形二：解析成功（返回值含版面预览字段）
-    monkeypatch.setattr(app.P, "parse_file", lambda _p: ("正文内容", []))
-    _ft, _sec, rid, disp, imgs, total = app.load_uploaded(FakeUp())
+    # 情形二：解析成功（返回值含版面预览字段；第三项是 keep_lines 的原文）
+    monkeypatch.setattr(app.P, "parse_file", lambda _p, **_kw: ("正文内容", [], "正文内容"))
+    _ft, _sec, rid, _raw, disp, imgs, total = app.load_uploaded(FakeUp())
     assert len(removed) == 2
     assert rid.startswith("UP-") and len(rid) == 11
     assert "/" not in disp and "\\" not in disp

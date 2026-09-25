@@ -3,6 +3,13 @@ data/samples/
 data/results/
 data/gold/
 data/tmp_uploads/
+# 学生体检档案：属于使用者本人的作业数据，不进仓库
+data/history/
+
+# 队友的教师端源码（只读参考副本）：未经对方同意，不进公开仓库。
+# 之所以单列这一条：要把学生端推到 GitHub 做 Streamlit Cloud 公网部署，
+# 公开仓库等于把别人的代码一起公开了 —— 那不是我们的东西，不能替他决定。
+teammate_src/
 _mapping.csv
 .env
 .env.local
@@ -22,3 +29,16 @@ data/cases_full/
 # 视频素材与成片（体积大，走提交专区上传，不进仓库）
 video_out/
 AutoGrader-*.mp4
+
+# 界面汉化的生成物：由 chrome_i18n._ensure_page() 启动时自动生成，不必提交
+static/i18n.html
+
+# 验证脚本每次跑出来的截图（verify_i18n.py 等），只用于人工核对
+tools/_*.png
+
+# tools/ 下所有下划线开头的一律是临时探针与产物，不提交。
+# 为什么要下这条：这个环境里连 os.remove 都会被沙箱拦掉
+#（SAFE_DELETE_FAIL_CLOSED），临时文件删不干净，只能靠 .gitignore 兜住。
+# 注意范围限定在 tools/ 内 —— 别写成全局的「下划线开头就忽略」，
+# 根目录那个 _internal/ 是**项目文档**，要提交的。
+tools/_*

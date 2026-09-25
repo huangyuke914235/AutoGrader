@@ -42,6 +42,28 @@ def demo_mode():
     return str(get_env("DEMO_MODE", "false")).lower() == "true"
 
 
+def ai_ready():
+    """AI 检查是否**真的**能出分。
+
+    为什么需要它：DEMO_MODE=false 且没配密钥时，界面上原本不会有任何提示，
+    4 项 AI 检查会静默降级为「未检测」——42% 的权重缺席，而使用者毫不知情，
+    会把「只跑了 8 项」当成「跑了 12 项」。凡是显示体检分的地方，
+    都必须先问一次这个函数，把缺席情况明写出来。
+    """
+    if demo_mode():
+        return False
+    return bool(get_env("LLM_API_KEY", "").strip())
+
+
+def ai_blocked_reason():
+    """返回 AI 不可用的原因文案；可用时返回空串。"""
+    if demo_mode():
+        return "DEMO_MODE 已开启，不会调用真实模型"
+    if not get_env("LLM_API_KEY", "").strip():
+        return "未配置 LLM_API_KEY（AI 检查需要大模型接口）"
+    return ""
+
+
 _stats = {"calls": 0, "tokens": 0, "failed": 0, "json_repaired": 0}
 
 
@@ -197,18 +219,108 @@ def strip_code_fence(raw: str) -> str:
 _client_cache = {}
 
 
-def _get_client(timeout: int = 120):
-    """复用 OpenAI 客户端（每次新建会带来不必要的连接开销）"""
+def _get_client(timeout: int = 120, api_key: str = None, base_url: str = None):
+    """复用 OpenAI 客户端（每次新建会带来不必要的连接开销）
+
+    api_key / base_url 为 None 时读环境变量；显式传入时用它。
+    为什么要支持显式传参：学生可以自选供应商、自填密钥，
+    而 Streamlit 多个会话共享同一份模块 —— 若把学生填的 key 存进模块级变量，
+    A 同学的 key 会被 B 同学的会话用到，那是安全事故也是计费事故。
+    所以配置只能沿调用链显式传递，绝不落全局。
+    """
     from openai import OpenAI
-    key = (get_env("LLM_API_KEY"), get_env("LLM_BASE_URL"), timeout)
-    if key not in _client_cache:
-        _client_cache[key] = OpenAI(api_key=key[0], base_url=key[1], timeout=timeout)
-    return _client_cache[key]
+    ak = api_key if api_key is not None else get_env("LLM_API_KEY")
+    bu = base_url if base_url is not None else get_env("LLM_BASE_URL")
+    cache_key = (ak, bu, timeout)
+    if cache_key not in _client_cache:
+        _client_cache[cache_key] = OpenAI(api_key=ak, base_url=bu, timeout=timeout)
+    return _client_cache[cache_key]
+
+
+# ---------------- 模型参数差异表 ----------------
+# 各家对「采样参数」的容忍度不一样，这里每一条都必须有出处，不许凭印象写。
+#
+# 依据 Kimi 官方《模型参数参考》（platform.kimi.com/docs/api/models-overview）：
+#   「表中『固定』表示该参数不可修改：传入其他值会报错，建议不要显式传入。」
+#   kimi-k2.6 / kimi-k2.7-code / kimi-k3 的 temperature、top_p、n 都是固定值
+#   （思考模式 temperature=1.0，非思考模式 0.6；top_p 固定 0.95）。
+#
+# 而我们这条流水线为了结果可复现，一贯传 temperature=0.0
+# （见 pipeline.py 的重试判定与 selfcheck.py 的 AI 体检）。
+# 两者相遇的实际表现是：**DeepSeek 能用，换 Kimi 就挂** ——
+# 前者接受 0，后者直接回 400 invalid_request_error。
+# 与其让用户三趟猜谜，不如在这里按模型名显式区分。
+FIXED_TEMPERATURE_PREFIXES = ("kimi-k2.", "kimi-k2-", "kimi-k3")
+
+
+def temperature_allowed(model: str) -> bool:
+    """该模型是否接受我们显式传入 temperature。
+
+    返回 False 时必须**整个参数都不传**（不传即使用平台固定值），
+    而不是传 None、也不能传 0 —— 传 0 同样会被拒绝。
+    """
+    m = (model or "").strip().lower()
+    return not m.startswith(FIXED_TEMPERATURE_PREFIXES)
+
+
+def fast_params(model: str) -> dict:
+    """该型号有哪些「可以关掉的慢速开关」。返回空 dict 表示没有可关的。
+
+    Kimi k2.6 **默认开启思考模式**（thinking={"type":"enabled"}）：先生成一大段
+    推理再作答，同样的任务要多花好几倍时间。而我们的判定任务是「单点判定 +
+    原文引用」，并不依赖长链推理 —— 关掉它是纯赚的速度。
+
+    必须**精确到型号，不能按前缀匹配**（与 temperature 那条同源的坑：
+    同一协议 ≠ 同一套参数）。依据官方《模型参数参考》：
+      · kimi-k2.6      → 支持 disabled / enabled / enabled+keep ✔ 可关
+      · kimi-k2.7-code → 仅接受 enabled，传 disabled 会报错 ✘
+      · kimi-k3        → 该行为「—」，无此参数 ✘
+    宁可只对确认支持的型号生效，也不能为了多覆盖一个型号而把整条通道弄挂。
+    """
+    m = (model or "").strip().lower()
+    if m == "kimi-k2.6":
+        return {"thinking": {"type": "disabled"}}
+    return {}
+
+
+def _human_api_error(status: int, e: Exception, model: str) -> str:
+    """把 4xx 翻译成人话 + 可执行的出路。密钥绝不带进消息。"""
+    raw = str(e)[:300]
+    if status == 404:
+        return (f"模型接口返回 404：模型名「{model}」在该平台不存在。"
+                f"最常见的原因是旧型号已退役（各厂会定期下线旧模型，"
+                f"例如 Kimi 的 moonshot-v1 系列已于 2026-08-31 停服）。"
+                f"请点下方「测试连接」，它会把这个 Key 真正能用的模型列出来。"
+                f"原始报错：{raw}")
+    if status in (401, 403):
+        _hint = ""
+        if model and ("moonshot" in str(model).lower() or "kimi" in str(model).lower()):
+            _hint = ("Kimi 有国内 / 国际两个平台、端点互不通用："
+                     "国内 platform.moonshot.cn → https://api.moonshot.cn/v1，"
+                     "国际 platform.kimi.ai → https://api.moonshot.ai/v1。"
+                     "Key 打错平台会返回 401，请换「自定义」通道填另一个端点试试。")
+        return (f"密钥被平台拒绝（{status}）：API Key 无效、已过期，"
+                f"或账户欠费 / 没有该模型的使用权限。{_hint}"
+                f"原始报错：{raw}")
+    # 400
+    _p = ""
+    if "temperature" in raw or "top_p" in raw:
+        _p = ("报错指向 temperature / top_p —— 该型号这两个参数是平台固定值，"
+              "不接受自定义（Kimi k2.x 与 k3 系列都是这样）。")
+    elif "response_format" in raw or "json" in raw.lower():
+        _p = ("报错指向 response_format —— 该型号不支持强制 JSON 输出，"
+              "请换一个支持 JSON Mode 的型号。")
+    return (f"平台拒绝了请求参数（400）：{_p}原始报错：{raw}")
 
 
 def call_json(system: str, user: str, schema, temperature: float = 0.0,
-              retries: int = 2, timeout: int = 120, backoff: float = 3.0):
+              retries: int = 2, timeout: int = 120, backoff: float = 3.0,
+              api_key: str = None, base_url: str = None, model: str = None,
+              fast: bool = True):
     """调用模型并返回校验通过的 schema 实例。
+
+    api_key / base_url / model 为 None 时读环境变量；显式传入时用它
+    （学生自带密钥的场景）。详见 _get_client 的注释：配置不落全局。
 
     四道防线：
     1. response_format=json_object（模型侧）
@@ -219,16 +331,34 @@ def call_json(system: str, user: str, schema, temperature: float = 0.0,
     第 4 道是 2026-09-22 补的：原实现只捕获 TypeError，任何 APIConnectionError /
     APITimeoutError / RateLimitError / 5xx 都会直接穿透出去，一次抖动就把整阶段打挂，
     而上层又把它吞成一句「生成失败」——线上因此出现过 E 阶段长期失败但查不到原因。
+
+    fast=True（默认）时会带上该型号的「加速参数」（见 fast_params）：
+    例如 Kimi k2.6 默认开启思考模式，每次要先吐一大段推理，慢好几倍；
+    而我们的判定任务不依赖长链推理，关掉它是纯赚。
+    需要最高判分质量时可传 fast=False 打开思考（更慢）。
     """
     from pydantic import ValidationError
 
-    # DEMO_MODE 必须真的拦住调用——旧实现只是界面上写一句提示，模型照样会被调用
-    if demo_mode():
+    # DEMO_MODE 拦的是「用平台配置去烧钱」：旧实现只是界面上写一句提示，
+    # 模型照样会被调用。但学生**显式自带**的密钥属于他自己的账户，应当放行。
+    if demo_mode() and api_key is None:
         raise RuntimeError("DEMO_MODE=true：已阻止调用真实模型。"
                            "如需真实评阅请把 DEMO_MODE 设为 false 并配置密钥。")
 
-    client = _get_client(timeout)      # 复用客户端，不要每次调用都新建
-    model = get_env("LLM_MODEL", "deepseek-chat")
+    client = _get_client(timeout, api_key=api_key, base_url=base_url)
+    if model is None:
+        model = get_env("LLM_MODEL", "deepseek-chat")
+
+    # 部分模型的 temperature 是平台固定值（Kimi k2.x / k3），传任何自定义值
+    # 都会被 400 拒绝 —— 那就整个参数都不传，用它自己的默认值。
+    # 注意必须是「不传」而不是「传默认 0.0」：传 0 照样报错。
+    # 代价（必须说清楚）：无法再锁 temperature=0，同一份报告两次跑分可能有波动，
+    # 所以这类模型的评分稳定性不如 DeepSeek。详见 docs/模型接入设计.md。
+    _temp = {"temperature": temperature} if temperature_allowed(model) else {}
+
+    # 厂商私有参数只能走 extra_body（SDK 不认识这些字段，直接当关键字传会 TypeError）。
+    _speed = fast_params(model) if fast else {}
+    _extra = {"extra_body": _speed} if _speed else {}
 
     last_err = None
     for attempt in range(retries + 1):
@@ -239,8 +369,8 @@ def call_json(system: str, user: str, schema, temperature: float = 0.0,
                     model=model,
                     messages=[{"role": "system", "content": system},
                               {"role": "user", "content": user}],
-                    temperature=temperature,
                     response_format={"type": "json_object"},
+                    **_temp, **_extra,
                 )
             except TypeError:
                 # 某些模型不支持 response_format，退回普通调用
@@ -248,12 +378,20 @@ def call_json(system: str, user: str, schema, temperature: float = 0.0,
                     model=model,
                     messages=[{"role": "system", "content": system},
                               {"role": "user", "content": user}],
-                    temperature=temperature,
+                    **_temp, **_extra,
                 )
         except Exception as e:
-            # 传输/服务端瞬时故障：退避后重试，而不是立刻放弃整个阶段
             last_err = e
             _stats["failed"] += 1
+            status = getattr(e, "status_code", None)
+            # 4xx（429 限流除外）是请求本身有问题：模型名错了、key 无效、参数不支持，
+            # 重试一万次也是同一个错。立刻报人话并给出可执行的出路，
+            # 别让学生干等 3s+6s 退避之后才看到一句干巴巴的 NotFoundError。
+            # （真实案例：Kimi 的 moonshot-v1 全系 2026-08-31 停服后，
+            #   旧预设每次都要转圈 10 秒才报 404。）
+            if status in (400, 401, 403, 404):
+                raise RuntimeError(_human_api_error(status, e, model))
+            # 传输/服务端瞬时故障：退避后重试，而不是立刻放弃整个阶段
             if attempt < retries:
                 wait = backoff * (2 ** attempt)
                 print(f"[llm] 第 {attempt + 1} 次调用失败（{type(e).__name__}）"
@@ -408,6 +546,142 @@ def normalize_judgement(judgement, item, full_text: str):
             f"（该判定应落在 {lo:.0%}~{hi:.0%}），已转人工复核")
 
     return judgement, notes
+
+
+_SECRET_RE = re.compile(r"\b(sk|ak)-[A-Za-z0-9_\-]{8,}")
+
+
+def _strip_secret(text: str, *secrets: str) -> str:
+    """把文本里出现的密钥原文换成掩码。
+
+    诊断的意义就在于「把平台的原话带回来给人看」，但也正因为这样才有风险：
+    这份结果大概率会被整段复制粘贴到群里求助 —— 那等于把密钥贴了出去。
+
+    两道防线：
+    1. 精确替换已知的密钥原文；
+    2. 形态兜底 —— 平台有时会把 key 的一部分回显进错误信息
+       （"Invalid key: sk-abc…"），精确替换覆盖不到这种情况。
+
+    保留几位是个取舍：界面回显保留末 4 位，是为了让人一眼确认自己填的是
+    哪个 Key（providers.mask_key 干的活）；但**诊断结果是要离开本机的**，
+    所以这里一位都不留。同一段数据、两种场景，标准不同，别混为一谈。
+    """
+    out = text or ""
+    for s in secrets:
+        if s and len(s) >= 6:
+            out = out.replace(s, f"{s[:3]}{'*' * 8}")
+    return _SECRET_RE.sub(lambda m: f"{m.group(1)}-{'*' * 8}", out)
+
+
+def diagnose(api_key=None, base_url=None, model=None, timeout: int = 30) -> dict:
+    """一键体检模型通道 —— 把平台说的话原样带回来，而不是让人猜。
+
+    为什么必须有它：模型退役、Key 与平台不匹配、账户欠费、某型号不接受
+    temperature、不支持 JSON 强输出……这些故障的**表现形式完全一样**，
+    都是「跑不出来」。只能看到一句笼统提示的人要往返三轮才可能说清，
+    而远程协助又更难。这里把每一步的真实返回结构化输出，分诊一眼完成。
+
+    返回 dict：ok / steps（每一步的名称、成败、原话）/ models（该 Key 能用的模型）
+    / hint（给人看的分诊结论）。所有文本均已脱敏。
+
+    设计细节：步骤 ③ 故意**沿用业务真正会传的 temperature**。于是
+    「③ 通、④ 不通」或「② 通、③ 不通」就能直接锁定问题落在哪一层，
+    反之则排除 —— 这个对照正是上一轮 Kimi 故障最难定位的地方。
+    """
+    result = {"ok": False, "model": model or "", "base_url": base_url or "",
+              "steps": [], "models": [], "hint": ""}
+    if not model:
+        model = get_env("LLM_MODEL", "")
+    if not base_url:
+        base_url = get_env("LLM_BASE_URL", "") or None
+    if api_key is None:
+        api_key = get_env("LLM_API_KEY", "")
+    tok = api_key or ""
+    result["model"] = model
+    result["base_url"] = base_url or ""
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
+    except Exception as e:
+        result["steps"].append(("初始化客户端", False, _strip_secret(str(e)[:300], tok)))
+        result["hint"] = "客户端没建起来：检查接口地址是不是合法的 http(s) 地址。"
+        return result
+
+    # ① 拉取可用模型列表 —— 这一步能同时验出 Key 是否有效、端点是否配错
+    try:
+        data = getattr(client.models.list(), "data", []) or []
+        ids = sorted({getattr(m, "id", "") for m in data if getattr(m, "id", "")})
+        result["models"] = ids
+        result["steps"].append(("① 拉取可用模型列表", True, f"成功，共 {len(ids)} 个"))
+    except Exception as e:
+        msg = _strip_secret(str(e)[:300], tok)
+        sc = getattr(e, "status_code", None)
+        hint = ""
+        if sc in (401, 403):
+            hint = ("Key 没通过平台认证。请逐个排查：① Key 是否复制完整（前后别带空格）；"
+                    "② Key 所属的站点是否和这里填的接口地址匹配 —— Kimi 国内站 "
+                    "platform.moonshot.cn 与国际站 platform.kimi.ai 的 Key 互不通用，"
+                    "端点分别是 api.moonshot.cn 和 api.moonshot.ai；"
+                    "③ 账户是否余额不足或被停用。")
+        elif sc == 404:
+            hint = "该端点没有 /v1/models 接口。多数情况下对话仍可用，继续看下一步。"
+        else:
+            hint = "连不上服务器：地址写错、网络不通，或本机需要走代理。"
+        result["steps"].append(("① 拉取可用模型列表", False, msg))
+        result["hint"] = hint
+        if sc in (401, 403):
+            return result          # 认证层都没过，后面不必再试
+
+    # ② 模型名是否真的在这个 Key 的名下
+    if result["models"] and model:
+        if model in result["models"]:
+            result["steps"].append(("② 检查模型名", True, f"「{model}」在可用列表里"))
+        else:
+            result["steps"].append(("② 检查模型名", False,
+                                    f"这个 Key 名下没有「{model}」"))
+            result["hint"] = ("请把模型名改成下方可用列表里的某一个"
+                              "（Kimi 现役通用型号为 kimi-k2.6 / kimi-k3）。")
+
+    # ③ 最小对话：参数与业务实际调用保持一致
+    _temp = {"temperature": 0.0} if temperature_allowed(model) else {}
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "回复 OK 两个字"}],
+            **_temp,
+        )
+        txt = (resp.choices[0].message.content or "").strip()[:80]
+        _p = "temperature=0" if _temp else "未传 temperature（该型号此项为平台固定值）"
+        result["steps"].append(("③ 最小对话", True, f"返回：{txt}（{_p}）"))
+        result["ok"] = True
+    except Exception as e:
+        msg = _strip_secret(str(e)[:300], tok)
+        sc = getattr(e, "status_code", None)
+        result["steps"].append(("③ 最小对话", False, msg))
+        result["hint"] = (_human_api_error(sc, e, model)
+                          if sc in (400, 401, 403, 404)
+                          else f"调用失败：{msg}")
+        return result
+
+    # ④ 业务真正依赖的是 JSON 强输出，单独再验一次
+    try:
+        r2 = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": '只输出 JSON：{"a":1}'}],
+            response_format={"type": "json_object"},
+            **_temp,
+        )
+        c2 = (r2.choices[0].message.content or "").strip()[:120]
+        loads_json(c2)
+        result["steps"].append(("④ JSON 强输出", True, f"解析通过：{c2}"))
+    except Exception as e:
+        result["steps"].append(("④ JSON 强输出", False, _strip_secret(str(e)[:300], tok)))
+        result["hint"] = ("该型号不接受 response_format=json_object。"
+                          "代码已能在输出不合法时自动重试，但可靠性下降，建议换个型号。")
+        result["ok"] = False
+
+    return result
 
 
 def locate(section_list, full_text: str, quote: str):

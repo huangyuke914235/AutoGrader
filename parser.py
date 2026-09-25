@@ -137,10 +137,23 @@ def _fallback_chunks(full_text: str) -> list:
     return secs
 
 
+def import_fitz():
+    """PyMuPDF 的兼容导入：新版本包名叫 `pymupdf`，老版本叫 `fitz`。
+
+    这个判断只允许有一处 —— parser 负责**读** PDF，report_pdf 负责**写** PDF，
+    两边必须落到同一个库对象上，否则不同模块各自嘗試导入会拿到两套行为。
+    """
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz
+    return fitz
+
+
 def extract_text(path: str) -> str:
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
-        import fitz
+        fitz = import_fitz()
         doc = fitz.open(path)
         parts = []
         for page in doc:
@@ -183,11 +196,7 @@ def _open_pdf(path: str):
     文件不存在时**显式报错**（预览失败要能被发现，不静默返回空）。"""
     if not os.path.exists(path):
         raise FileNotFoundError(f"找不到文件：{path}")
-    try:
-        import pymupdf as fitz
-    except ImportError:
-        import fitz
-    return fitz.open(path)
+    return import_fitz().open(path)
 
 
 def render_pdf_pages(path: str, max_pages: int = PREVIEW_MAX_PAGES,
@@ -205,10 +214,6 @@ def render_pdf_pages(path: str, max_pages: int = PREVIEW_MAX_PAGES,
     """
     if os.path.splitext(path)[1].lower() != ".pdf" or max_pages <= 0:
         return []
-    try:
-        import pymupdf as fitz
-    except ImportError:
-        import fitz
     zoom = dpi / 72.0
     pages = []
     doc = _open_pdf(path)
@@ -283,12 +288,17 @@ def canonical(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def parse_file(path: str):
-    """返回 (canonical_text, sections)
+def parse_file(path: str, keep_lines: bool = False):
+    """返回 (canonical_text, sections)；keep_lines=True 时多返回一份保留换行的原文。
 
     注意：章节切分仍然在**原始文本**上做（标题识别依赖换行），
     切完再把全文与每个章节各自规范化，并按规范后的文本重算偏移量，
     否则详情页的「定位 / 高亮」会错位。
+
+    为什么要 keep_lines：canonical() 会把换行也压成空格，正文变成一行。
+    这对「引用逐字匹配」是必需的，但对**行级规则**（按行扫描小标题、识别编号步骤、
+    识别数据行）是致命的 —— 规则引擎拿不到行，就会把一份完整报告判成缺章节。
+    两条链路各取所需：评阅/AI 用 canonical，行级规则用 raw。
     """
     raw = extract_text(path)
     raw = raw.replace("\r\n", "\n").replace("\r", "\n")
@@ -304,6 +314,8 @@ def parse_file(path: str):
         s.char_start = i if i >= 0 else pos
         s.char_end = s.char_start + len(s.text)
         pos = max(s.char_end, s.char_start)
+    if keep_lines:
+        return full_text, sections, raw
     return full_text, sections
 
 

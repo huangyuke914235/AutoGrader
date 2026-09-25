@@ -58,7 +58,7 @@ def test_api_exception_is_system_error_not_student_score(monkeypatch):
         raise RuntimeError("模拟网络中断")
     monkeypatch.setattr(pipeline, "call_json", boom)
     monkeypatch.setattr(pipeline, "stage_feedback",
-                        lambda i_, j_: Feedback(summary="ok", suggestions=[]))
+                        lambda i_, j_, llm_cfg=None: Feedback(summary="ok", suggestions=[]))
     res = pipeline.run_grading(FULL, [], "原始标准",
                                rubric=Rubric(items=[ITEM]), enable_recheck=False)
     j = res.judgements[0]
@@ -124,7 +124,7 @@ def test_full_pipeline_with_mock(monkeypatch):
                 judge_payload(verdict="partial", score=30, quote=GOOD)]
     monkeypatch.setattr(pipeline, "call_json", fake_call(ItemJudgement, payloads))
     monkeypatch.setattr(pipeline, "stage_feedback",
-                        lambda items_, jds: Feedback(summary="ok", suggestions=["s"]))
+                        lambda items_, jds, llm_cfg=None: Feedback(summary="ok", suggestions=["s"]))
 
     res = pipeline.run_grading(FULL, [], "原始评分标准", report_id="T1",
                                rubric=Rubric(items=items), enable_recheck=False)
@@ -167,7 +167,7 @@ def test_injection_forces_review(monkeypatch):
     monkeypatch.setattr(pipeline, "call_json",
                         fake_call(ItemJudgement, [judge_payload(score=90)]))
     monkeypatch.setattr(pipeline, "stage_feedback",
-                        lambda i_, j_: Feedback(summary="ok", suggestions=[]))
+                        lambda i_, j_, llm_cfg=None: Feedback(summary="ok", suggestions=[]))
     res = pipeline.run_grading(evil, [], "原始标准", rubric=Rubric(items=items),
                                enable_recheck=False)
     assert all(j.needs_review for j in res.judgements)

@@ -130,6 +130,46 @@ class RunInfo(BaseModel):
     injection_hits: List[str] = Field(default_factory=list)   # 命中的评分操纵指令特征
 
 
+class SelfCheckIssue(BaseModel):
+    """体检发现的一个问题。
+
+    direction 是**改进方向**，不是可抄录的答案：长度上限由 selfcheck 在代码层强制截断。
+    """
+    problem: str = ""
+    location: str = ""
+    impact: str = "中"                # 较小 / 中 / 较大
+    direction: str = ""
+
+
+class SelfCheckItem(BaseModel):
+    """一个检查项的结果"""
+    name: str = ""
+    score: float = 0.0                # 0-100
+    status: str = "偏弱"               # 通过 / 偏弱 / 缺失 / 未检测
+    engine: str = "rule"              # rule=规则引擎 / ai=模型
+    issues: List[SelfCheckIssue] = Field(default_factory=list)
+
+
+class SelfCheckPayload(BaseModel):
+    """模型在自检阶段**唯一**被允许输出的东西（没有 total，权重也不归它管）"""
+    items: List[SelfCheckItem] = Field(default_factory=list)
+
+
+class SelfCheckResult(BaseModel):
+    """一次自检的结果（total 由代码加总，与 GradingResult 同一条纪律）"""
+    report_id: str = ""
+    experiment_type: str = ""
+    items: List[SelfCheckItem] = Field(default_factory=list)
+    total: float = 0.0
+    # 未检测项（AI 不可用）不计入总分，这里如实记录，界面要说清楚
+    detected_count: int = 0
+    undetected: List[str] = Field(default_factory=list)
+    use_ai: bool = False
+    model: str = ""
+    created_at: str = ""
+    error: str = ""                   # 自检失败的真实原因，不允许静默吞掉
+
+
 class GradingResult(BaseModel):
     """一份报告的最终评阅结果（total 由代码计算）"""
     report_id: str = ""

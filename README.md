@@ -88,7 +88,10 @@ pip install -r requirements-dev.txt  # 仅跑测试时需要
 cp .env.example .env                 # 然后填入自己的 key（.env 不提交）
 python tools/test_key.py             # 验证密钥与结构化输出是否可用
 python -m pytest tests/ -q           # 无 key 也能跑，全部通过才算干净
-streamlit run app.py                 # 打开 http://localhost:8501
+streamlit run app.py                 # 打开 http://localhost:8502
+# 注：右上角界面汉化（chrome_i18n.py）依赖「同源静态目录」，
+#     开关已固化在 .streamlit/config.toml 的 server.enableStaticServing = true，
+#     本地和 Streamlit Cloud 都生效，不需要再手动加命令行参数。详见 docs/界面汉化.md
 ```
 
 `.env` 内容（也可直接复制 `.env.example`）：
@@ -100,8 +103,12 @@ LLM_MODEL=deepseek-chat
 DEMO_MODE=false
 ```
 
-`DEMO_MODE=true` 时**真的不会**调用模型（代码层拦截，不只是界面提示）；
+`DEMO_MODE=true` 时**真的不会**用平台配置调用模型（代码层拦截，不只是界面提示）；
 需要离线演示请先 `python tools/make_demo.py` 生成演示结果。
+
+例外：学生在侧边栏**自己填了 API Key** 时，即使 `DEMO_MODE=true` 也会放行 ——
+那是他自己的账户，不属于「用平台的钱」。（`DEMO_MODE` 只防误烧平台额度。）
+见 `docs/bugfix-密钥未透传.md`。
 
 ## 自动化测试
 

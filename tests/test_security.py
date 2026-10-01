@@ -151,8 +151,14 @@ def test_csv_formula_injection_is_neutralized():
     assert app._csv_safe("正常文本") == "正常文本"
 
 
-def test_upload_temp_file_is_removed_even_when_parse_fails(monkeypatch):
-    """解析成功或失败，都不应残留原始上传文件"""
+def test_upload_temp_file_lifecycle(monkeypatch):
+    """解析失败必须立刻删；解析成功则**保留**到下一次上传或超期清扫。
+
+    为什么成功路径不再立刻删（2026-10 变更）：多模态 OCR 需要按页渲染原始文件
+    才能读截图，文件在解析后就被删掉的话，OCR 永远拿不到原件。
+    保留期由 sweep_stale_uploads 兜底，文件仍是受控临时目录 + UUID 文件名，
+    隐私口径没有放松 —— 但这条边界必须有测试守着，不能靠注释。
+    """
     import app
 
     class FakeUp:
@@ -163,7 +169,7 @@ def test_upload_temp_file_is_removed_even_when_parse_fails(monkeypatch):
     removed = []
     monkeypatch.setattr(os, "remove", lambda p: removed.append(p))
 
-    # 情形一：解析失败
+    # 情形一：解析失败 —— 必须删，且路径不能逃逸
     def boom(_p, **_kw):
         raise RuntimeError("解析炸了")
     monkeypatch.setattr(app.P, "parse_file", boom)
@@ -171,10 +177,11 @@ def test_upload_temp_file_is_removed_even_when_parse_fails(monkeypatch):
         app.load_uploaded(FakeUp())
     assert len(removed) == 1 and "etc" not in removed[0], "失败也要删，且路径不能逃逸"
 
-    # 情形二：解析成功（返回值含版面预览字段；第三项是 keep_lines 的原文）
+    # 情形二：解析成功（返回值含版面预览字段与原始文件路径，供 OCR 使用）
     monkeypatch.setattr(app.P, "parse_file", lambda _p, **_kw: ("正文内容", [], "正文内容"))
-    _ft, _sec, rid, _raw, disp, imgs, total = app.load_uploaded(FakeUp())
-    assert len(removed) == 2
+    _ft, _sec, rid, _raw, disp, imgs, total, src = app.load_uploaded(FakeUp())
+    assert len(removed) == 1, "成功路径不再立刻删除（OCR 还要用它渲染页面）"
+    assert src.endswith(".txt") and "etc" not in src, "临时文件必须落在受控目录"
     assert rid.startswith("UP-") and len(rid) == 11
     assert "/" not in disp and "\\" not in disp
     assert imgs == [] and total == 0, "docx 不渲染版面，且不额外落盘"

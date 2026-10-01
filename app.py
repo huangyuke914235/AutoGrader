@@ -24,6 +24,7 @@ import pandas as pd
 
 import parser as P
 import prompts
+import ocr
 import batch_ui
 import providers
 import chrome_i18n
@@ -34,7 +35,10 @@ from models import Rubric, RubricItem
 from pipeline import (run_grading, stage_rubric, rubric_source_hash,
                       validate_rubric, RubricError, apply_override,
                       effective_score, recompute_total, build_export_rows,
-                      DEFAULT_JUDGE_WORKERS)
+                      DEFAULT_JUDGE_WORKERS,
+                      run_offline_grading, run_ocr_enrichment, apply_ocr_to_runinfo,
+                      load_first_demo_result, demo_candidates, load_demo_result,
+                      rule_feedback, default_rubric)
 from llm import (demo_mode, ai_ready, ai_blocked_reason, diagnose,
                  temperature_allowed)
 
@@ -150,14 +154,17 @@ def _render_selfcheck_archive(cur_key: str, root: str = None):
 
 
 def load_uploaded(up):
-    """上传 -> 解析 -> 渲染版面预览 -> 删除临时文件。
+    """上传 -> 解析 -> 渲染版面预览 -> 记录临时文件路径（供多模态 OCR 使用）。
 
     同一个文件在页面重跑时会被复用缓存结果：Streamlit 每次交互都会重跑整个脚本，
     旧实现会让"点一次应用改分"触发一次重新落盘 + 重新渲染 20 页 PDF。
 
-    report_id 用随机 UUID（不参与任何路径拼接），原始文件名只保留净化后的展示名；
-    临时文件无论成败都在 finally 中删除。
-    版面预览必须在删除临时文件**之前**渲染，且只保存在内存里，不落盘。
+    report_id 用随机 UUID（不参与任何路径拼接），原始文件名只保留净化后的展示名。
+
+    关于临时文件的保留期（2026-10 调整）：旧实现在解析后**立刻**删除临时文件，
+    于是多模态 OCR 永远拿不到原始 PDF —— 它需要按页渲染图片才能读截图。
+    现在改为「保留到下一次上传或超期清扫」：文件仍在受控临时目录、仍是 UUID 文件名，
+    且 sweep_stale_uploads 会兜底清理，隐私口径没有放松，只是把窗口延长到够 OCR 用完。
     """
     key = f"{getattr(up, 'file_id', '')}:{up.name}:{getattr(up, 'size', '')}"
     if _UPLOAD_CACHE.get("key") == key:
@@ -171,13 +178,14 @@ def load_uploaded(up):
         except Exception as e:              # 渲染失败绝不能影响评阅主流程
             print(f"[warn] 版面渲染失败（不影响评阅）：{type(e).__name__}: {e}")
             images, total_pages = [], 0
-    finally:
+    except Exception:
         try:
             os.remove(tmp)
-        except OSError as e:
-            print(f"[warn] 临时上传文件未能删除：{tmp}（{e}）")
+        except OSError:
+            pass
+        raise
     value = (full_text, sections, "UP-" + uuid.uuid4().hex[:8], raw_text,
-             _safe_display_name(up.name), images, total_pages)
+             _safe_display_name(up.name), images, total_pages, tmp)
     _UPLOAD_CACHE.clear()
     _UPLOAD_CACHE.update(key=key, value=value)
     return value
@@ -559,6 +567,35 @@ with st.sidebar:
     st.caption("② 无证据的判断不算数，引用必须原文匹配")
     st.caption("③ 不确定就交给人，标记待复核")
 
+    # ---------- 预置演示结果（零配置也能看到完整产品）----------
+    # 公开 Demo 上评阅链路必须要一个模型；评委不填 Key 就只能看到一个报错页，
+    # 而产品真正值钱的部分（逐点证据、原文对照、人工改分、成绩单）全在后面。
+    # 预置结果让「打开就能看完」成立，且必须如实标注它是预置的。
+    _demos = demo_candidates()
+    if _demos:
+        st.markdown("---")
+        st.markdown("**演示结果**")
+        _names = [os.path.splitext(os.path.basename(p))[0] for p in _demos]
+        _pick = st.selectbox("预置评阅结果", _names, key="demo_pick",
+                             help="仓库内置的真实评阅结果缓存，用于零配置查看完整产品形态")
+        if st.button("📂 载入这份结果", use_container_width=True, key="btn_load_demo"):
+            _res = load_demo_result(_demos[_names.index(_pick)])
+            if _res is None:
+                st.error("这份预置结果读取失败（文件可能损坏）。")
+            else:
+                st.session_state["result"] = _res
+                # 正文与章节也要一起装上，否则「② 详情对照」的原文高亮无处可依
+                _ft = (_res.demo_meta or {}).get("full_text", "")
+                if _ft:
+                    st.session_state["full_text"] = _ft
+                    st.session_state["sections"] = P.split_sections(_ft)
+                _meta = _res.demo_meta or {}
+                st.session_state["demo_loaded"] = _meta
+                st.success(f"已载入预置结果（{_res.model}），"
+                           f"到「② 详情对照」「④ 导出」查看完整链路。")
+    else:
+        st.caption("（仓库内没有预置演示结果：跑 `python tools/build_demo.py` 生成）")
+
 st.title("AutoGrader · 实验报告智能评阅平台")
 st.caption("把老师的评分标准变成可核查、可溯源、可校准的判定流水线")
 
@@ -600,13 +637,18 @@ with tab1:
                 else:
                     try:
                         (full_text, sections, report_id, _raw, disp,
-                         imgs, total_pages) = load_uploaded(up)
+                         imgs, total_pages, _src) = load_uploaded(up)
+                        st.session_state["source_path"] = _src
+                        st.session_state["source_kind"] = (
+                            os.path.splitext(_src)[1].lower() if _src else "")
                     except ValueError as e:
                         st.error(f"上传被拒绝：{e}")
                         full_text, sections, report_id, imgs, total_pages = "", [], "", [], 0
+                        st.session_state["source_path"] = ""
                     except Exception as e:
                         st.error(f"解析失败（{type(e).__name__}）：{e}")
                         full_text, sections, report_id, imgs, total_pages = "", [], "", [], 0
+                        st.session_state["source_path"] = ""
                     st.session_state["display_name"] = disp if full_text else ""
                     st.session_state["page_images"] = imgs
                     st.session_state["page_images_total"] = total_pages
@@ -621,6 +663,48 @@ with tab1:
             for w in P.inspect_text(full_text, len(sections))["warnings"]:
                 st.warning(w)
             show_page_preview()      # 评阅前就能人工核对版面
+
+        # ---------- 多模态 OCR（读截图 / 扫描件）----------
+        # 这一块解决的正是本项目最大的能力缺口：实验报告的关键证据（运行结果、
+        # 报错、表格）大量以截图形式存在，纯文本抽取拿到的是「运行结果示例」这行
+        # 标题，正文全空，于是系统把一整类报告系统性判低。
+        _sig = ocr.vision_needed(
+            full_text, warnings=(P.inspect_text(full_text, len(sections))["warnings"]
+                                 if full_text else []))
+        _vis_ok = providers.supports_vision(llm_cfg or {})
+        _src_path = st.session_state.get("source_path", "")
+
+        with st.expander("🖼 多模态 OCR：把截图里的内容读成可引用的正文", expanded=bool(_sig["needed"])):
+            if _sig["needed"]:
+                st.info("系统判断这份报告**很可能有内容在图片里**：\n\n- "
+                        + "\n- ".join(_sig["reasons"]))
+            else:
+                st.caption("未发现「证据集中在图片里」的迹象；如仍想读图可手动开启。")
+
+            if not _vis_ok:
+                st.warning(providers.vision_note(llm_cfg or {}))
+            if not _src_path:
+                st.caption("当前来源没有原始文件（内置样本或直接粘贴的文本），"
+                           "OCR 需要 PDF/图片原件 —— 请用「上传文件」方式载入。")
+
+            _oc = st.columns([1, 1, 1])
+            with _oc[0]:
+                use_ocr = st.checkbox(
+                    "开启 OCR 读图", value=bool(_sig["needed"] and _vis_ok and _src_path),
+                    disabled=not (_vis_ok and _src_path),
+                    help="逐页把报告渲染成图片交给多模态模型转录；结果按文件哈希缓存，重复评阅不重复计费")
+            with _oc[1]:
+                ocr_pages_max = st.number_input("最多读几页", min_value=1, max_value=60,
+                                                value=ocr.DEFAULT_MAX_PAGES, step=1,
+                                                disabled=not use_ocr)
+            with _oc[2]:
+                ocr_dpi = st.select_slider("渲染清晰度 DPI", options=[96, 120, 150, 200],
+                                           value=150, disabled=not use_ocr,
+                                           help="小字代码建议 150 以上；越高越清晰也越贵")
+            if use_ocr:
+                st.caption(f"预计 {ocr_pages_max} 次图片调用（按页计费，命中缓存不调用）。"
+                           f"读出的内容会作为独立章节并入正文，引用可精确到「第 N 页」，"
+                           f"并标注为 OCR 转录、供人工核对。")
 
     with c2:
         st.subheader("评分标准")
@@ -706,13 +790,86 @@ with tab1:
             note.caption(f"A 阶段：正在判定第 {i}/{n} 个评分点 —— {name}")
 
         rub = st.session_state.get("rubric")
-        with st.spinner("RAG-E 流水线运行中…"):
-            res = run_grading(full_text, sections, raw_rubric,
-                              report_id=report_id, course_hint=course,
-                              rubric=rub, progress=cb, llm_cfg=llm_cfg,
-                              enable_recheck=st.session_state.get("opt_recheck", False),
-                              judge_workers=st.session_state.get(
-                                  "opt_workers", DEFAULT_JUDGE_WORKERS))
+
+        # ---------- 第 0 步：多模态 OCR（按需读图，不改变评阅语义）----------
+        ocr_info = None
+        if use_ocr and _src_path:
+            with st.spinner("多模态 OCR：正在逐页读取图片内容…"):
+                def _op(cur, tot):
+                    prog.progress(min(0.15, cur / max(tot, 1) * 0.15))
+                    note.caption(f"OCR：正在读取第 {cur}/{tot} 页…")
+                full_text, sections, ocr_info = run_ocr_enrichment(
+                    _src_path, full_text, sections, llm_cfg=llm_cfg,
+                    enabled=True, max_pages=int(ocr_pages_max), dpi=int(ocr_dpi),
+                    progress=_op)
+            st.session_state["ocr_info"] = ocr_info
+            if ocr_info.get("used"):
+                st.success(f"OCR 完成：读了 {ocr_info['pages']} 页，"
+                           f"转录 {ocr_info['chars']} 字，识别出 {ocr_info['images']} 处图片内容"
+                           f"（缓存命中 {ocr_info['cached_hits']} 页）。")
+                if ocr_info.get("failed"):
+                    st.warning(f"其中 {ocr_info['failed']} 页读取失败，已在运行信息中记录："
+                               + "；".join(ocr_info.get("errors", [])[:3]))
+            else:
+                st.info("OCR 未产生内容：" + (ocr_info.get("skipped_reason") or "本页无可读内容"))
+
+        # ---------- 判定：三条路径，界面必须说清走的是哪一条 ----------
+        # 旧实现只有「模型」一条路：离线通道直接抛 RuntimeError，评委看到原始报错页，
+        # 而产品真正值钱的部分（逐点证据、人工改分、成绩单）全在后面。
+        # 现在离线通道走规则引擎，照样把完整链路走完，并明确标注强度不足。
+        engine = "model"
+        _demo_res = None
+        if llm_cfg is not None and llm_cfg.get("id") == "offline":
+            engine = "rule"
+        elif not providers.llm_kwargs(llm_cfg) and demo_mode():
+            engine = "demo"
+            _demo_res, _demo_path = load_first_demo_result()
+            if _demo_res is None:
+                engine = "rule"
+
+        try:
+            with st.spinner("RAG-E 流水线运行中…" if engine == "model"
+                            else "规则引擎判定中…"):
+                if engine == "rule":
+                    if rub is None:
+                        rub = default_rubric()
+                        st.info("未生成过评分点：离线通道已自动使用**通用五评分点**"
+                                "（合计 100 分）。想按自己课程的标准判定，"
+                                "请先在「③ 评分点」用「① 生成评分点」生成一套。")
+                    _t0 = time.time()
+                    res = run_offline_grading(full_text, sections, rub.items,
+                                              report_id=report_id, course_hint=course,
+                                              raw_rubric=raw_rubric, progress=cb,
+                                              elapsed=time.time() - _t0)
+                    st.warning("本次判定由**离线规则引擎**给出（未调用模型）："
+                               "它只能核对「该提的有没有提」，判不了原理是否抄书、"
+                               "计算是否跳步、结论是否有依据。所有评分点已标记待人工复核。")
+                elif engine == "demo" and _demo_res is not None:
+                    res = _demo_res.model_copy(deep=True)
+                    st.info("当前是**演示模式**：返回的是预置的完整评阅结果"
+                            "（真实跑出来并缓存），用于零配置查看产品全貌。"
+                            "要做真实评阅请在上方选择一个模型通道并填入 API Key。")
+                else:
+                    res = run_grading(full_text, sections, raw_rubric,
+                                      report_id=report_id, course_hint=course,
+                                      rubric=rub, progress=cb, llm_cfg=llm_cfg,
+                                      enable_recheck=st.session_state.get("opt_recheck", False),
+                                      judge_workers=st.session_state.get(
+                                          "opt_workers", DEFAULT_JUDGE_WORKERS))
+        except Exception as e:
+            # 评阅这条链路以前唯独没有 try/except：任何异常都会把 Streamlit 原始堆栈
+            # 甩到页面上。现在必须给一句人话 + 一条可执行的出路。
+            _kind = "规则引擎" if engine == "rule" else "评阅流水线"
+            st.error(f"{_kind}运行失败（{type(e).__name__}）：{e}")
+            st.caption("常见原因：模型通道未就绪 / 额度或限流 / 密钥无效 / 报告格式异常。"
+                       "可先点侧边栏的「🔌 测试连接」确认通道可用；"
+                       "也可切到「仅离线规则」通道先用规则引擎跑通全流程。")
+            st.stop()
+
+        if ocr_info:
+            if res.run_info is not None:
+                apply_ocr_to_runinfo(res.run_info, ocr_info)
+            res.ocr = ocr_info          # 供界面与导出展示（GradingResult 允许附加字段）
         st.session_state["result"] = res
         st.session_state["full_text"] = full_text
         st.session_state["sections"] = sections

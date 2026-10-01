@@ -8,8 +8,11 @@ R 评分点原子化 -> A 证据锚定判定 -> G 一致性守卫 -> E 反馈生
 2. verify_evidence 不通过 -> 重跑；再不通过 -> 降级为 miss + needs_review
 3. 低置信 / 双跑不一致 -> needs_review = True
 """
+import datetime
+import hashlib
 import json
 import math
+import os
 import time
 
 from models import (Rubric, RubricItem, ItemJudgement, Evidence,
@@ -19,6 +22,9 @@ import providers
 from llm import (call_json, verify_evidence, locate, normalize_judgement,
                  get_env, demo_mode, get_stats)
 import parser as P
+
+#: 项目根目录（预置演示结果、缓存等相对路径都从它出发）
+ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 DEMO_RESULT = None   # 离线演示用（由 tools/make_demo.py 生成后载入）
@@ -76,6 +82,31 @@ def rubric_source_hash(raw_rubric: str, course_hint: str = "") -> str:
 
 class RubricError(ValueError):
     """评分标准不合法（空 / 重复 id / 非正数 / 项数越界）——必须拒绝，不能静默修好"""
+
+
+#: 通用实验报告的五项评分点（合计 100 分）。
+#: 用于**离线规则通道**与演示构建：没有模型时也得有一套合法的 rubric 才能跑通
+#: 「逐点判定 → 代码加总 → 出报告」这条骨架。它刻意保持通用，
+#: 不针对任何一门课 —— 教师可以照着自己课的要求改。
+DEFAULT_RUBRIC_ITEMS = [
+    ("r1", "实验目的明确", "开头明确写出本次实验的目的与需要掌握的能力", 15,
+     ["实验目的", "旨在", "掌握", "目的", "了解"]),
+    ("r2", "环境与步骤", "写清实验环境配置与可复现的操作步骤", 20,
+     ["环境", "步骤", "安装", "配置", "命令", "版本"]),
+    ("r3", "核心实现", "给出核心代码、模型结构或关键实现说明", 25,
+     ["代码", "实现", "模型", "算法", "结构", "类", "方法"]),
+    ("r4", "结果与数据", "给出运行结果、截图、表格或实验数据", 20,
+     ["结果", "输出", "截图", "数据", "表", "运行"]),
+    ("r5", "分析与总结", "对结果进行分析讨论，并有总结或心得", 20,
+     ["分析", "总结", "心得", "讨论", "结论", "复杂度"]),
+]
+
+
+def default_rubric() -> Rubric:
+    """五评分点通用 rubric（合计 100）。离线通道没有教师标准时的兜底。"""
+    return Rubric(items=[
+        RubricItem(id=i, name=n, criteria=c, max_score=s, positive_signals=list(p))
+        for i, n, c, s, p in DEFAULT_RUBRIC_ITEMS])
 
 
 def validate_rubric(rubric: Rubric, normalize: bool = True) -> Rubric:
@@ -418,10 +449,17 @@ def run_grading(full_text: str, sections, raw_rubric: str,
     # 的操作毫无关系 —— 用户不可能猜到。判定纪律只有一条：
     # 显式传入的密钥放行（与 llm.call_json 内的同名判断保持一致）。
     if demo_mode() and not kw:
-        if DEMO_RESULT is not None:
-            return DEMO_RESULT
+        # 优先用内存里已经载入的结果（界面选中的那一份），
+        # 其次**现场去磁盘找预置演示结果**——旧实现只看 DEMO_RESULT，
+        # 而它全仓库没有任何一处赋值，于是公开 Demo 上点「开始评阅」
+        # 必然抛 RuntimeError，评委看到的是原始报错页。
+        res = DEMO_RESULT
+        if res is None:
+            res, _p = load_first_demo_result()
+        if res is not None:
+            return res
         raise RuntimeError(
-            "DEMO_MODE=true 但没有可用演示结果（先跑 tools/make_demo.py）。\n"
+            "DEMO_MODE=true 但没有可用演示结果（先跑 tools/build_demo.py）。\n"
             "若想用真实模型评阅，二选一：\n"
             "  ① 左侧「模型接入」选一个通道并填 API Key（学生自带密钥会直接放行）；\n"
             "  ② 把服务端环境变量 DEMO_MODE 设为 false 并在 .env 里配置密钥。")
@@ -659,3 +697,336 @@ def effective_score(res: GradingResult, rubric_item_id: str) -> float:
 
 def result_to_json(res: GradingResult) -> dict:
     return json.loads(res.model_dump_json())
+
+
+# ---------- 离线（纯规则）判定：让 Demo 不接模型也能走通完整链路 ----------
+
+def _first_quote(text: str, signals, min_len: int = 6, max_len: int = 200):
+    """在一段正文里为某个评分点找一条**逐字存在**的证据句。
+
+    与 A 阶段的证据闸门同源：这里找到的 quote 是直接从原文切出来的，
+    所以它必然能通过 `llm.verify_evidence` 的逐字校验——离线演示不会因为
+    证据对不上而露出「假数据」的破绽。
+    """
+    for sig in signals or []:
+        if not sig:
+            continue
+        i = (text or "").find(str(sig))
+        if i < 0:
+            continue
+        # 以信号词为中心截一个尽量完整的句子：向前找到句首，向后找到句末
+        start = i
+        for sep in ("\n", "。", "；", "！", "？", "!", "?", ";"):
+            p = text.rfind(sep, max(0, i - 120), i)
+            if p > start - 120 and p != -1:
+                start = max(start, p + 1) if p + 1 <= i else start
+        start = max(0, min(start, i))
+        end = len(text)
+        for sep in ("\n", "。", "；", "！", "？", "!", "?", ";"):
+            p = text.find(sep, i + len(str(sig)))
+            if p != -1:
+                end = min(end, p + 1)
+        quote = text[start:end].strip()
+        # 长度必须落在证据校验允许的窗口内（模型侧与代码侧同一套上下限）
+        if len(quote) < min_len:
+            quote = text[i:min(len(text), i + min_len + 20)].strip()
+        if len(quote) > max_len:
+            quote = quote[:max_len].strip()
+        if len(quote) >= min_len:
+            return quote
+    return ""
+
+
+def rule_judge(item: RubricItem, sections, full_text: str) -> ItemJudgement:
+    """纯规则的评分点判定：确定性、可复现、不调模型。
+
+    存在的理由：公开 Demo 不能要求评委自备 API Key。这条规则通道让
+    「生成评分点 → 逐点判定 → 证据锚定 → 加总 → 出报告」这套骨架**零配置可跑**，
+    评委打开就能看到完整产品形态，只是判定强度弱于模型。
+
+    纪律上与模型判定完全对齐（这也是它能当演示的原因）：
+    - 证据必须来自原文，quote 直接切片而来，必然逐字可校验；
+    - **一律标注待人工复核**：规则通道的判定强度不足，绝不允许它冒充终评；
+    - reason 里明写引擎来源，导出与界面都不会把它伪装成 AI 判定。
+    """
+    signals = list(item.positive_signals or [])
+    if not signals:
+        # 没有命中特征时退化为「按评分点名称断词」，保证仍能给出可核对的证据
+        import re as _re
+        signals = [w for w in _re.split(r"[^\w\u4e00-\u9fff]+", item.name or "") if len(w) >= 2]
+
+    neg = [s for s in (item.negative_signals or []) if s and str(s) in (full_text or "")]
+
+    hits, quote = [], ""
+    for s in signals:
+        if s and str(s) in (full_text or ""):
+            hits.append(str(s))
+    quote = _first_quote(full_text, hits or signals)
+
+    if not hits:
+        return ItemJudgement(
+            rubric_item_id=item.id, verdict="miss", score=0.0, confidence=0.35,
+            reason=(f"离线规则通道：在正文中未检索到与「{item.name}」相关的命中特征"
+                    f"（{'、'.join(signals[:6]) or '无'}），因此无法给出得分依据。"
+                    f"本条为规则判定、非模型判定，一律转人工复核。"),
+            evidence=[], needs_review=True)
+
+    # 命中比例决定档位：命中特征越多越接近满分。这是**刻意保守**的映射——
+    # 规则通道宁可给低，也不要在公开演示里给出虚高的分数。
+    ratio = len(hits) / max(1, len(signals))
+    if ratio >= 0.75:
+        verdict, score = "hit", round(item.max_score * 0.9, 1)
+    elif ratio >= 0.4:
+        verdict, score = "partial", round(item.max_score * 0.65, 1)
+    else:
+        verdict, score = "partial", round(item.max_score * 0.4, 1)
+
+    ev = [Evidence(section_id="", quote=quote, char_start=full_text.find(quote))] if quote else []
+    if ev and ev[0].char_start < 0:
+        ev = []
+    if not ev:
+        verdict, score = "partial", round(item.max_score * 0.3, 1)
+
+    why = f"离线规则通道：命中特征 {'、'.join(hits[:5])}"
+    if neg:
+        why += f"；同时命中未命中特征 {'、'.join(neg[:3])}"
+    why += "。本判定由规则引擎给出（未调用模型），仅供演示与初筛，一律转人工复核。"
+
+    return ItemJudgement(rubric_item_id=item.id, verdict=verdict, score=score,
+                         confidence=0.5, reason=why, evidence=ev,
+                         needs_review=True)
+
+
+def run_offline_grading(full_text: str, sections, items, report_id: str = "",
+                        course_hint: str = "", raw_rubric: str = "",
+                        progress=None, elapsed: float = 0.0) -> GradingResult:
+    """不调模型的完整评阅：与 run_grading 同一条数据契约、同一套加总规则。
+
+    用途是把「Demo 必须能用」和「演示必须诚实」这两件事同时满足：
+    结果是真的（每一步都跑过、证据都来自原文），只是引擎标着「规则」。
+    """
+    import datetime
+    judgements = []
+    n = len(items)
+    for i, it in enumerate(items):
+        judgements.append(rule_judge(it, sections, full_text))
+        if progress:
+            progress(i + 1, n, it.name)
+
+    ai_total = round(sum(j.score for j in judgements), 1)
+    feedback = rule_feedback(items, judgements)
+    health = P.inspect_text(full_text, len(sections))
+    info = RunInfo(
+        created_at=datetime.datetime.now().isoformat(timespec="seconds"),
+        model="offline-rule-engine",
+        base_url="",
+        temperature=0.0,
+        rubric_source_hash=getattr(items, "source_hash", "") or rubric_source_hash(raw_rubric, course_hint),
+        rubric_raw=raw_rubric,
+        report_hash=hashlib.sha256(full_text.encode("utf-8")).hexdigest()[:16],
+        report_chars=len(full_text or ""),
+        parse_warnings=health["warnings"],
+        parse_coverage=health["coverage"],
+        enable_recheck=False,
+        prompt_version=_prompt_version(),
+        system_errors=0,
+    )
+    return GradingResult(report_id=report_id, items=list(items), judgements=judgements,
+                         total=ai_total, ai_total=ai_total, feedback=feedback,
+                         total_incomplete=False, model="offline-rule-engine",
+                         elapsed_sec=round(elapsed, 1), run_info=info)
+
+
+def rule_feedback(items, judgements) -> Feedback:
+    """规则兜底评语：把「哪几项没拿到证据」说清楚，并给出可执行的补齐方向。
+
+    不用模板套话：每条建议都指向具体评分点与它的命中特征，
+    学生看完知道该往报告里补什么。
+    """
+    got = {j.rubric_item_id: j for j in judgements}
+    weak = [it for it in items
+            if got.get(it.id) and got[it.id].verdict != "hit"]
+    missing = [it for it in items
+               if got.get(it.id) and got[it.id].verdict == "miss"]
+
+    if not weak:
+        summary = ("各评分点的命中特征都能在报告正文中找到依据（离线规则通道）。"
+                   "这只能说明「该提的都提到了」，是否真的做到，仍需教师确认。")
+    else:
+        summary = (f"共有 {len(weak)} 个评分点没有拿满："
+                   f"{'、'.join(it.name for it in weak[:5])}"
+                   f"{'等' if len(weak) > 5 else ''}。"
+                   f"其中 {len(missing)} 项在正文里完全找不到依据。"
+                   f"本评语由规则引擎给出（未调用模型），最终成绩请以教师确认为准。")
+
+    suggestions = []
+    for it in missing[:3]:
+        sig = "、".join((it.positive_signals or [])[:4]) or it.name
+        suggestions.append(
+            f"「{it.name}」（{it.max_score} 分）：正文里找不到 {sig} 相关内容。"
+            f"请对照这一项的判定标准补写，并保留可核对的原始材料（输出文本、数据表或截图说明）。")
+    for it in [x for x in weak if x not in missing][:2]:
+        suggestions.append(
+            f"「{it.name}」（{it.max_score} 分）：有依据但不充分，"
+            f"建议把过程与结论写完整（判定标准：{it.criteria}）。")
+    if not suggestions:
+        suggestions.append("各项均已找到依据；建议补上误差分析或改进方向，让结论更完整。")
+
+    return Feedback(summary=summary, suggestions=suggestions,
+                    generated_by="rule-fallback", error="")
+
+
+# ---------- 预置演示结果：让「不填 Key」也能看到完整产品 ----------
+
+DEMO_DIRS = ("data/demo", "demo")
+
+
+def demo_candidates() -> list:
+    """列出仓库里预置的离线演示结果（公开 Demo 的「开箱即看」素材）。
+
+    为什么需要它：公开部署上，评阅链路必须要一个模型。旧版本的做法是
+    点「开始评阅」直接抛 RuntimeError —— 评委看到的是原始报错页，
+    而这条链路的价值恰恰全在后面（逐点证据、人工改分、成绩单）。
+    预置一份**真实跑出来的**结果，评委零配置就能把产品看完。
+    """
+    out = []
+    for d in DEMO_DIRS:
+        p = os.path.join(ROOT, d)
+        if not os.path.isdir(p):
+            continue
+        for fn in sorted(os.listdir(p)):
+            if fn.endswith(".json"):
+                out.append(os.path.join(p, fn))
+    return out
+
+
+def load_demo_result(path: str):
+    """读一份预置结果并还原成 GradingResult；损坏时返回 None（绝不让 Demo 崩掉）"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and "result" in data:
+            meta = {k: v for k, v in data.items() if k != "result"}
+            res = GradingResult.model_validate(data["result"])
+            res.demo_meta = meta
+            return res
+        return GradingResult.model_validate(data)
+    except Exception as e:
+        print(f"[demo] 预置结果读取失败（已忽略）：{path} :: {type(e).__name__}: {e}")
+        return None
+
+
+def load_first_demo_result():
+    """按目录顺序取第一份可用的预置结果。"""
+    for p in demo_candidates():
+        res = load_demo_result(p)
+        if res is not None:
+            return res, p
+    return None, ""
+
+
+def save_demo_result(path: str, res: GradingResult, meta: dict = None):
+    """把一次真实跑出来的结果落成预置演示文件（供构建脚本调用）"""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    payload = {"_meta": meta or {}, "result": json.loads(res.model_dump_json())}
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=1)
+    return path
+
+
+# ---------- 多模态 OCR 接进评阅链路 ----------
+
+def run_ocr_enrichment(source_path: str, full_text: str, sections, llm_cfg: dict = None,
+                       enabled: bool = False, max_pages: int = None,
+                       dpi: int = None, progress=None):
+    """需要时把页面图片里的内容读进正文。返回 (full_text, sections, ocr_info)。
+
+    为什么放在流水线入口而不是判定阶段内部：
+    证据的坐标系必须在判定**之前**定下来。OCR 文本一旦并进正文，
+    后续 R/A/G/E 四阶看到的是同一份文本，引用校验、章节定位、
+    可溯源率统计全都自然成立，不需要为「图片证据」开任何后门。
+
+    三种情况一律**不改变行为**（保证评阅永远能继续）：
+    - 没开启 OCR；
+    - 该格式不支持（.txt / .docx 走各自的图片抽取路径）；
+    - 读取失败 —— 如实记录失败页数，正文保持原样，绝不编造内容。
+    """
+    import ocr as O
+
+    cfg = llm_cfg or {}
+    info = {"used": False, "model": cfg.get("model") or get_env("LLM_MODEL", ""),
+            "pages": 0, "chars": 0, "images": 0, "failed": 0, "cached_hits": 0,
+            "skipped_reason": "", "errors": [], "signals": {}}
+
+    if not enabled:
+        info["skipped_reason"] = "未开启多模态 OCR"
+        return full_text, sections, info
+
+    if not source_path or not os.path.exists(source_path):
+        info["skipped_reason"] = "没有可读取的原始文件（正文来自文本粘贴或内置样本）"
+        return full_text, sections, info
+
+    try:
+        embedded = len(P.extract_embedded_images(source_path)) if hasattr(P, "extract_embedded_images") else 0
+    except Exception:
+        embedded = 0
+
+    sig = O.vision_needed(full_text, warnings=P.inspect_text(full_text, len(sections))["warnings"],
+                          embedded_images=embedded)
+    info["signals"] = sig["signals"]
+    info["reasons"] = sig["reasons"]
+    info["mode"] = sig["mode"] or "transcribe"
+    transcribe = info["mode"] != "caption"
+
+    try:
+        res = O.read_report_images(
+            source_path,
+            api_key=cfg.get("api_key"), base_url=cfg.get("base_url"),
+            model=cfg.get("model") or None,
+            dpi=dpi or O.DEFAULT_DPI,
+            max_pages=max_pages or O.DEFAULT_MAX_PAGES,
+            progress=progress,
+            transcribe=transcribe,
+        )
+    except Exception as e:
+        # OCR 是**增强**，不是前置条件：它挂了，评阅必须照常进行
+        info["skipped_reason"] = f"多模态读取失败：{type(e).__name__}: {str(e)[:160]}"
+        info["errors"] = [info["skipped_reason"]]
+        return full_text, sections, info
+
+    pages = res.get("pages") or []
+    stats = res.get("stats") or {}
+    info.update({
+        "used": bool(stats.get("pages_read")),
+        "model": stats.get("model", info["model"]),
+        "pages": stats.get("pages_read", 0),
+        "chars": stats.get("chars", 0),
+        "images": stats.get("images", 0),
+        "failed": stats.get("failed", 0),
+        "cached_hits": stats.get("cached_hits", 0),
+        "errors": res.get("errors") or [],
+    })
+
+    if not pages:
+        info["skipped_reason"] = info["skipped_reason"] or "没有可读取的页面"
+        return full_text, sections, info
+
+    enriched = O.enrich_text(full_text, pages)
+    new_sections = P.split_sections(enriched)
+    info["added_chars"] = len(enriched) - len(full_text or "")
+    return enriched, new_sections, info
+
+
+def apply_ocr_to_runinfo(info: RunInfo, ocr_info: dict) -> RunInfo:
+    """把 OCR 统计写进可审计元信息（不参与打分，但必须可追溯）"""
+    if not ocr_info:
+        return info
+    info.ocr_used = bool(ocr_info.get("used"))
+    info.ocr_model = ocr_info.get("model", "")
+    info.ocr_pages = int(ocr_info.get("pages") or 0)
+    info.ocr_chars = int(ocr_info.get("chars") or 0)
+    info.ocr_images = int(ocr_info.get("images") or 0)
+    info.ocr_failed = int(ocr_info.get("failed") or 0)
+    info.ocr_cached_hits = int(ocr_info.get("cached_hits") or 0)
+    return info
+

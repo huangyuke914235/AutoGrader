@@ -14,6 +14,11 @@ HEADING_PATTERNS = [
     re.compile(r"^\s*第\s*[一二三四五六七八九十]+\s*[章节部分]\s*.*$"),
     re.compile(r"^\s*[一二三四五六七八九十]+\s*[、.．]\s*\S.{0,30}$"),
     re.compile(r"^\s*\d+(\.\d+){0,2}\s*[、.．]?\s*\S.{0,40}$"),
+    # 多模态页面转录的标题（由 ocr.build_section_text 生成，形如「第 3 页 OCR 转录」）。
+    # 必须显式登记，不能只靠下面的 _is_heading 启发式：这类标题很短，紧随其后的
+    # 正文也可能很短，于是「下一行更长」与「下一行为空」两条启发式都不成立，
+    # 标题就会被并进上一段 —— 证据随之丢掉「第 N 页」这个坐标。
+    re.compile(r'^\s*第\s*\d+\s*页[\sA-Za-z]*\S*\s*$'),
     re.compile(r"^\s*(实验目的|实验内容|实验要求|实验环境|实验原理|实验步骤|实验过程|"
                r"实验设计与实现|实验结果|结果分析|实验分析|结果与分析|实验总结|"
                r"心得体会|思考题|源代码|核心代码|附录|参考文献|问题描述|算法设计|"
@@ -191,6 +196,52 @@ PREVIEW_MAX_PAGES = 20        # 单份最多渲染多少页（防止超长 PDF �
 PREVIEW_DPI = 100             # 够看清版面与截图，又不至于让单页图片过大
 
 
+def extract_embedded_images(path: str, max_images: int = 60, min_bytes: int = 2048) -> list:
+    """抽出文档里**内嵌的**图片，返回 [(标签, 字节), ...]。
+
+    两个用途，都与「图片里的内容读不到」这个老问题有关：
+    1. 数一数这份报告到底有多少张图（DOCX 的图片不在页面渲染范围内，
+       只渲染 PDF 页面会漏掉它们）；
+    2. 交给多模态 OCR 读（见 ocr.py）。
+
+    min_bytes 用来滤掉分隔线、项目符号这类装饰性小图：它们没有信息量，
+    送进模型纯属浪费额度，还会让「识别出 N 处图片」这个数字虚高。
+    """
+    ext = os.path.splitext(path)[1].lower()
+    out = []
+    try:
+        if ext == ".pdf":
+            doc = _open_pdf(path)
+            try:
+                for pno, page in enumerate(doc, 1):
+                    for img in page.get_images(full=True):
+                        if len(out) >= max_images:
+                            return out
+                        xref = img[0]
+                        try:
+                            info = doc.extract_image(xref)
+                        except Exception:
+                            continue
+                        data = info.get("image") or b""
+                        if len(data) >= min_bytes:
+                            out.append((f"第{pno}页-图片{xref}", data))
+            finally:
+                doc.close()
+        elif ext == ".docx":
+            import zipfile
+            with zipfile.ZipFile(path) as z:
+                for name in z.namelist():
+                    if len(out) >= max_images:
+                        break
+                    if name.startswith("word/media/"):
+                        data = z.read(name)
+                        if len(data) >= min_bytes:
+                            out.append((os.path.basename(name), data))
+    except Exception as e:
+        print(f"[parser] 内嵌图片抽取失败（不影响正文）：{type(e).__name__}: {e}")
+    return out
+
+
 def _open_pdf(path: str):
     """打开 PDF：优先新包名 pymupdf，兼容旧包名 fitz。
     文件不存在时**显式报错**（预览失败要能被发现，不静默返回空）。"""
@@ -217,6 +268,11 @@ def render_pdf_pages(path: str, max_pages: int = PREVIEW_MAX_PAGES,
     zoom = dpi / 72.0
     pages = []
     doc = _open_pdf(path)
+    # 必须在这里显式取一次模块对象：`fitz` 只存在于 import_fitz() 的**局部**作用域，
+    # 模块级并没有这个名字。旧实现直接写 `fitz.Matrix(...)`，于是本函数**必然**
+    # 抛 NameError；上游 app.py 又用 `except Exception` 把它吞成一行 [warn]，
+    # 结果「原始版面对照」这个卖点在界面上从来没有真正出现过（2026-10 定位并修复）。
+    fitz = import_fitz()
     try:
         for i, page in enumerate(doc):
             if i >= max_pages:

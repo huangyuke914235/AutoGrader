@@ -108,6 +108,29 @@ class Feedback(BaseModel):
     error: str = ""                  # E 阶段失败时的真实原因，不允许再被静默吞掉
 
 
+class OcrImageNote(BaseModel):
+    """多模态 OCR 从页面图片里读出的一处非文字内容（截图/表格/图表/公式）。
+
+    它是**旁证**，不是学生写的正文：提示词明确要求「读不出来就写无法辨认」，
+    因此它参与判定时也必须能被原文逐字校验，走的是与正文完全相同的证据闸门。
+    """
+    kind: str = "other"        # screenshot / code / table / chart / diagram / formula / other
+    caption: str = ""
+    content: str = ""
+
+
+class OcrPage(BaseModel):
+    """一页的多模态转录结果。页码是证据坐标，必须保留。"""
+    page: int = 0
+    text: str = ""
+    images: List[OcrImageNote] = Field(default_factory=list)
+    legible: bool = True
+    notes: str = ""
+    chars: int = 0
+    cached: bool = False
+    error: str = ""
+
+
 class RunInfo(BaseModel):
     """一次评分的可审计元信息（用于事后复现，不参与打分）"""
     created_at: str = ""
@@ -128,6 +151,14 @@ class RunInfo(BaseModel):
     json_repaired: int = 0
     system_errors: int = 0           # 本次有几个评分点因系统错误未判定
     injection_hits: List[str] = Field(default_factory=list)   # 命中的评分操纵指令特征
+    # 多模态 OCR（图片/截图内容）—— 不开启时全部为 0/False，界面据此如实显示
+    ocr_used: bool = False
+    ocr_model: str = ""
+    ocr_pages: int = 0               # 实际读了多少页
+    ocr_chars: int = 0               # 从图片里读出的字符数
+    ocr_images: int = 0              # 识别出的图片/表格/图表处数
+    ocr_failed: int = 0              # 读失败的页数（逐页隔离，不等于整份失败）
+    ocr_cached_hits: int = 0         # 命中缓存的页数（不重复计费）
 
 
 class SelfCheckIssue(BaseModel):
@@ -184,3 +215,8 @@ class GradingResult(BaseModel):
     elapsed_sec: float = 0.0
     overrides: List[HumanOverride] = Field(default_factory=list)
     run_info: Optional[RunInfo] = None
+    # 多模态 OCR 的本次运行明细（页面转录、图片识别、失败页），界面与导出据此展示。
+    # 它不是分数的一部分：OCR 只影响「模型能看到什么」，不影响怎么算分。
+    ocr: Optional[dict] = None
+    # 预置演示结果的元信息（仅 Demo 模式填充：来源、生成时间、引擎等）
+    demo_meta: Optional[dict] = None

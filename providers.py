@@ -32,21 +32,34 @@ PROVIDERS = [
     },
     {
         "id": "deepseek",
-        "name": "DeepSeek 深度求索",
-        "base_url": "https://api.deepseek.com/v1",
-        "model": "deepseek-chat",
+        "name": "DeepSeek 深度求索（推荐·支持读图）",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-flash",
         "key_url": "https://platform.deepseek.com/api_keys",
         "needs_key": True,
-        "note": "中文强、便宜，约 ¥1 / 百万 token。推荐首选",
+        "vision": True,
+        "note": "deepseek-flash（DeepSeek-V4.1-Flash）：中文强、**支持多模态读图**，"
+                "可用于截图/扫描件 OCR。约 ¥0.15/百万输入 token（错峰）",
+    },
+    {
+        "id": "deepseek-pro",
+        "name": "DeepSeek 深度求索（V4 Pro·纯文本）",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-v4-pro",
+        "key_url": "https://platform.deepseek.com/api_keys",
+        "needs_key": True,
+        "vision": False,
+        "note": "deepseek-v4-pro：纯文本旗舰，不支持读图；长文与复杂判定更稳",
     },
     {
         "id": "qwen",
-        "name": "通义千问 Qwen（阿里云）",
+        "name": "通义千问 Qwen（阿里云·支持读图）",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "model": "qwen-plus",
         "key_url": "https://bailian.console.aliyun.com/?tab=model#/api-key",
         "needs_key": True,
-        "note": "国内直连稳定，有免费额度",
+        "vision": True,
+        "note": "国内直连稳定，有免费额度；qwen-plus / qwen-vl 系列支持读图",
     },
     {
         "id": "moonshot",
@@ -99,6 +112,41 @@ PROVIDERS = [
 ]
 
 PROVIDER_IDS = [p["id"] for p in PROVIDERS]
+
+#: 已知支持图片输入（多模态）的模型名特征。用于 custom 通道：
+#: 用户填 `x` 这种自建型号时，只能按名字猜，猜不中就让他在界面上自己勾。
+VISION_MODEL_HINTS = (
+    "deepseek-flash", "deepseek-v4-flash", "vision", "-vl", "vl-", "gpt-4o",
+    "gpt-4.1", "gpt-5", "claude-3", "claude-4", "claude-sonnet", "claude-opus",
+    "gemini", "glm-4v", "qwen-vl", "qwen2.5-vl", "qwen3-vl", "kimi-k3",
+    "internvl", "minicpm-v", "llava",
+)
+
+
+def supports_vision(cfg: dict) -> bool:
+    """该通道能不能读图（多模态 OCR 的前提）。
+
+    判据优先级：供应商表里的显式声明 > 模型名特征匹配。
+    宁可不给（判 False），也不要让 UI 放行一个注定 400 的请求：
+    用户点一次「开始 OCR」等到超时报错，比一开始就灰掉这个开关糟糕得多。
+    """
+    if not cfg:
+        return False
+    pid = cfg.get("id") or ""
+    p = get(pid) if pid else None
+    if p is not None and "vision" in p:
+        return bool(p["vision"])
+    model = (cfg.get("model") or "").lower()
+    return any(h in model for h in VISION_MODEL_HINTS)
+
+
+def vision_note(cfg: dict) -> str:
+    """给界面用的一句话说明：为什么这个通道不能读图。"""
+    if supports_vision(cfg):
+        return "该通道支持图片输入，可用于截图 / 扫描件 OCR。"
+    model = (cfg.get("model") or "未指定模型")
+    return (f"当前通道（{model}）不支持图片输入，OCR 无法开启。"
+            f"想读截图请换成 deepseek-flash 或其它支持视觉的模型。")
 
 # 各厂已退役、但用户可能从旧教程 / 旧配置里抄来的模型名 → 建议替换型号。
 # 在 validate 里提前拦下：否则学生要等三次退避（约 10 秒）才看到一句干巴巴的 404。
@@ -220,33 +268,48 @@ def llm_kwargs(cfg: dict) -> dict:
 SHARED_ID = "shared"
 
 
+def _conf(key: str, default: str = "") -> str:
+    """读一项平台配置：**环境变量优先，其次 Streamlit secrets**。
+
+    为什么必须两处都读（2026-10 修）：Streamlit Community Cloud 的官方配置方式
+    就是把密钥写进 Secrets，而不是环境变量。旧实现这里只读 `os.getenv`，
+    于是「按官方方式配好了 key，界面上却永远显示没有共享额度」——
+    公开站点因此彻底没有模型可用，而报错信息指向的方向完全无关。
+    这个坑与 llm.get_env 是同一个，两边必须用同一套读取顺序。
+    """
+    import os
+    val = os.getenv(key, "")
+    if not val:
+        try:
+            import streamlit as st
+            val = st.secrets.get(key, "")
+        except Exception:
+            val = ""
+    return str(val or default).strip()
+
+
 def shared_available() -> bool:
     """平台共享额度是否可用：管理员配了 key 且显式开启。"""
-    import os
-    if str(os.getenv("ENABLE_SHARED_AI", "false")).lower() != "true":
+    if _conf("ENABLE_SHARED_AI", "false").lower() != "true":
         return False
-    return bool(os.getenv("SHARED_LLM_API_KEY", "").strip())
+    return bool(_conf("SHARED_LLM_API_KEY"))
 
 
 def shared_cfg() -> dict:
     """平台共享通道的配置。没有共享额度时返回 None。"""
-    import os
     if not shared_available():
         return None
     return {
         "id": SHARED_ID,
-        "api_key": os.getenv("SHARED_LLM_API_KEY", "").strip(),
-        "base_url": os.getenv("SHARED_LLM_BASE_URL", "").strip()
-                    or os.getenv("LLM_BASE_URL", ""),
-        "model": os.getenv("SHARED_LLM_MODEL", "").strip()
-                 or os.getenv("LLM_MODEL", "deepseek-chat"),
+        "api_key": _conf("SHARED_LLM_API_KEY"),
+        "base_url": _conf("SHARED_LLM_BASE_URL") or _conf("LLM_BASE_URL"),
+        "model": _conf("SHARED_LLM_MODEL") or _conf("LLM_MODEL", "deepseek-flash"),
     }
 
 
 def daily_limit() -> int:
     """共享通道每会话每日可用次数；0 表示不限（不推荐）。"""
-    import os
     try:
-        return int(os.getenv("SHARED_DAILY_LIMIT", "20"))
+        return int(_conf("SHARED_DAILY_LIMIT", "20"))
     except ValueError:
         return 20

@@ -59,8 +59,8 @@ def test_api_key_is_passed_explicitly_not_stored_globally(monkeypatch):
     cfg = providers.build_cfg("deepseek", SECRET)
     SC.ai_check("正文", [], llm_cfg=cfg)
     assert captured.get("api_key") == SECRET
-    assert captured.get("base_url") == "https://api.deepseek.com/v1"
-    assert captured.get("model") == "deepseek-chat"
+    assert captured.get("base_url") == "https://api.deepseek.com"
+    assert captured.get("model") == "deepseek-flash"
 
 
 def test_two_different_keys_do_not_leak_between_calls(monkeypatch):
@@ -102,7 +102,7 @@ def test_describe_is_safe_for_export():
     cfg = providers.build_cfg("deepseek", SECRET)
     d = providers.describe(cfg)
     assert SECRET not in d
-    assert "deepseek-chat" in d
+    assert "deepseek-flash" in d
 
 
 def test_shared_channel_off_by_default(monkeypatch):

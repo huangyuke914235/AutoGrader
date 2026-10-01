@@ -1,0 +1,22 @@
+# Streamlit 运行配置
+#
+# 为什么要有这个文件：
+#   界面汉化（右上角 部署 / 三个点菜单 / 页脚）依赖「同源静态目录」注入，
+#   该能力由服务端开关 enableStaticServing 控制。
+#   之前是靠启动命令 --server.enableStaticServing=true 打开的，
+#   但 Streamlit Community Cloud 等托管平台只允许改仓库文件、不能加命令行参数，
+#   所以这里把开关固化进配置，本地和云端都能生效，不再依赖启动命令的写法。
+
+[server]
+# 允许访问 static/ 下的同源静态资源（汉化脚本 i18n.html 要用）
+enableStaticServing = true
+
+# 关闭 CORS / 关闭 XSRF 保持默认即可，这里不动，避免引入安全风险
+
+[browser]
+# 汉化后标题已为中文，此处的浏览器标签名仅作兜底
+gatherUsageStats = false
+
+[theme]
+# 与 app.py 中 set_page_config 的配色保持一致，避免首屏闪一下白底
+base = "light"

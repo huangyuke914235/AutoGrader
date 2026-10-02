@@ -901,12 +901,22 @@ def demo_candidates() -> list:
 
 
 def load_demo_result(path: str):
-    """读一份预置结果并还原成 GradingResult；损坏时返回 None（绝不让 Demo 崩掉）"""
+    """读一份预置结果并还原成 GradingResult；损坏时返回 None（绝不让 Demo 崩掉）
+
+    文件结构由 save_demo_result 写死为 {"_meta": {...}, "result": {...}}。
+    早先这里误把整个 payload 当元信息（`{k: v for k, v in data.items() ...}`），
+    于是 demo_meta 里只有 "_meta" / "result" 两个键 —— 界面取 full_text 取不到，
+    载入预置结果后「② 详情对照」**永远没有原文可高亮**，
+    而整份演示最有价值的一屏恰恰就是它。字段名读写必须对齐（本测试覆盖了这条）。
+    """
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict) and "result" in data:
-            meta = {k: v for k, v in data.items() if k != "result"}
+            meta = data.get("_meta")
+            if not isinstance(meta, dict):
+                # 兼容早期/手写的平铺格式：除 result 外的键都当元信息
+                meta = {k: v for k, v in data.items() if k != "result"}
             res = GradingResult.model_validate(data["result"])
             res.demo_meta = meta
             return res

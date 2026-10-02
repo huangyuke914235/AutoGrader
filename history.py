@@ -225,7 +225,7 @@ def trend(key: str, history_root: str = None) -> list:
 _SID = re.compile(r"^[0-9a-f]{8,64}$")
 
 
-def session_root(sid: str) -> str:
+def session_root(sid: str, history_root: str = None) -> str:
     """某个访问者的独立档案目录。
 
     `sid` **必须**是十六进制随机串（由 app.py 生成并校验）：这个值最终会出现在
@@ -233,7 +233,46 @@ def session_root(sid: str) -> str:
     """
     if not _SID.match(sid or ""):
         raise ValueError("档案空间编号不合法（必须是 8~64 位十六进制）")
-    return os.path.join(HISTORY_ROOT, sid)
+    return os.path.join(history_root or HISTORY_ROOT, sid)
+
+
+#: 服务器上最多留多少间「档案空间」。超出后不再为新编号建目录。
+#:
+#: 为什么必须有这个上限：`?sid=<16位十六进制>` 是**用户可以随手改的**，
+#: 而每换一个编号就会在磁盘上多一间目录。7 天清扫只能限制"留存多久"，
+#: 限制不了"同时存在多少间"—— 有人循环请求就能把磁盘写满，
+#: 而这是免费云主机最常见的封禁原因（磁盘满 → 应用起不来）。
+#: 上限取得比较宽松（够一个班 + 若干访客），目的是把"无界"变成"有界"。
+MAX_ARCHIVE_SPACES = 200
+
+
+def count_spaces(history_root: str = None) -> int:
+    """当前有多少间档案空间（只数目录；文件不算）"""
+    root = history_root or HISTORY_ROOT
+    try:
+        return sum(1 for n in os.listdir(root)
+                   if os.path.isdir(os.path.join(root, n)))
+    except OSError:
+        return 0
+
+
+def space_exists(sid: str, history_root: str = None) -> bool:
+    """这间档案空间是否已经存在（用于区分"老访客回来"与"新编号"）"""
+    try:
+        return os.path.isdir(session_root(sid, history_root))
+    except ValueError:
+        return False
+
+
+def can_open_new_space(history_root: str = None,
+                       limit: int = MAX_ARCHIVE_SPACES) -> bool:
+    """还能不能再开一间新档案空间。
+
+    调用方（app.py）在**准备为新编号建目录之前**问一次；不能开时应当
+    退回"只保留在内存里"的模式，并如实告诉用户数据不会被留存 ——
+    而不是假装存下了。
+    """
+    return count_spaces(history_root) < limit
 
 
 def export_bundle(history_root: str = None) -> str:

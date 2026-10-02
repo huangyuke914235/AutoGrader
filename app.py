@@ -341,15 +341,39 @@ def _archive_root() -> str:
     存在 session_state 里的编号会变，档案就找不回来了；网址刷新后还在。
     编号是从 URL 读来的**不可信输入**，必须严格校验成十六进制，
     否则 `?sid=../../etc` 就成了任意路径写入。
+
+    磁盘上限（2026-10 加固）：编号既然可改，每换一个就会多一间目录 ——
+    "7 天清扫"限制的是留存时长，限制不了**同时存在多少间**，
+    循环请求就能把免费主机的磁盘写满（磁盘满是这类应用最常见的封禁原因）。
+    所以这里是唯一决定"要不要真的落盘"的地方，也就必须在这里设闸：
+    新编号且已达上限时**不建目录**，退回一个只存在于本次会话的目录，
+    并在界面上如实说明"本次不落盘" —— 不能假装存下了。
     """
     raw = st.query_params.get("sid")
     sid = raw if isinstance(raw, str) and _SID_RE.match(raw) else ""
+    is_new = False
     if not sid:
         sid = uuid.uuid4().hex[:16]
+        is_new = True
         try:
             st.query_params["sid"] = sid
         except Exception:          # 某些嵌入环境不允许改地址栏 —— 退回本次会话内有效
             pass
+    elif not HIST.space_exists(sid):
+        is_new = True              # 老编号被清扫掉了，或有人伪造了一个
+
+    if is_new and _public_host() and not HIST.can_open_new_space():
+        # 退回内存态时必须**固定**这一间的编号：Streamlit 每次交互都会重跑整个脚本，
+        # 若这里每次生成新编号，学生刚测完一份、点下一个按钮就找不到刚才那份了
+        # （看起来像"随机丢数据"，比直接说"不保留"更糟）。
+        tmp_sid = st.session_state.get("_overflow_sid")
+        if not tmp_sid:
+            tmp_sid = uuid.uuid4().hex[:16]
+            st.session_state["_overflow_sid"] = tmp_sid
+        st.warning("服务器上的档案空间已达上限，**本次体检结果只保留在这次浏览会话里**"
+                   "（不影响这次体检本身，但刷新页面或关掉标签页就没了）。"
+                   "需要留档请用页面上的「⬇️ 导出全部档案」。")
+        return HIST.session_root(tmp_sid, history_root=TMPDIR)
     return HIST.session_root(sid)
 
 

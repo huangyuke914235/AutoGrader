@@ -1,0 +1,48 @@
+{
+ "created_at": "2026-10-02T12:56:31",
+ "report": "data\\class_demo\\C08_截图版.pdf",
+ "note": "同一份截图型报告，读图前后的完整对比（真实模型评阅）",
+ "ocr": {
+  "used": true,
+  "model": "deepseek-flash",
+  "pages": 1,
+  "chars": 408,
+  "images": 1,
+  "failed": 0,
+  "cached_hits": 0,
+  "skipped_reason": "",
+  "errors": [],
+  "signals": {
+   "text_chars": 142,
+   "has_screenshot_heading": true,
+   "has_inline_code": false,
+   "embedded_images": 1
+  },
+  "reasons": [
+   "解析阶段已告警：正文仅 142 字，疑似扫描件/图片型报告；建议开启「多模态 OCR」读图，否则截图中的内容不可见、判定可能严重偏低",
+   "报告多处提到截图/运行结果，但正文里找不到代码或命令行输出——证据很可能全在图片里",
+   "检测到 1 处嵌入图片",
+   "可抽取正文仅 142 字且没有内联代码，属于「几乎没有文本层」的报告"
+  ],
+  "mode": "transcribe",
+  "added_chars": 838
+ },
+ "before": {
+  "total": 4.0,
+  "chars": 142,
+  "evidence": 1,
+  "model": "deepseek-flash"
+ },
+ "after": {
+  "total": 38.0,
+  "chars": 980,
+  "evidence": 10,
+  "model": "deepseek-flash"
+ },
+ "screenshot_only_found": [
+  "1500.00",
+  "1200.00",
+  "余额不足",
+  "成功 3 次"
+ ]
+}

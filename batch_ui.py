@@ -32,27 +32,19 @@ from llm import demo_mode, get_stats
 ROOT = os.path.dirname(os.path.abspath(__file__))
 GOLD_PATH = os.path.join(ROOT, "data", "gold", "gold.json")
 
-# 与 tools/batch_run.py 保持同一套固定标准（人工 gold 就是按这 5 项打的）
-try:
-    from tools.batch_run import ITEMS as FIXED_ITEMS
-except Exception:
-    FIXED_ITEMS = [
-        RubricItem(id="r1", name="实验目的明确", criteria="开头明确写出本次实验的目的与要掌握的能力",
-                   max_score=15, positive_signals=["实验目的", "掌握", "目的"]),
-        RubricItem(id="r2", name="环境与步骤", criteria="写清实验环境配置与可复现的操作步骤",
-                   max_score=20, positive_signals=["环境", "步骤", "安装", "配置"]),
-        RubricItem(id="r3", name="核心实现", criteria="给出核心代码、模型结构或关键实现说明",
-                   max_score=25, positive_signals=["代码", "实现", "算法", "结构"]),
-        RubricItem(id="r4", name="结果与数据", criteria="给出运行结果、截图、表格或实验数据",
-                   max_score=20, positive_signals=["结果", "输出", "截图", "数据"]),
-        RubricItem(id="r5", name="分析与总结", criteria="对结果进行分析讨论，并有总结或心得",
-                   max_score=20, positive_signals=["分析", "总结", "心得", "结论"]),
-    ]
+# 固定 5 项标准：**唯一来源是 pipeline**（`tools/batch_run.py` 也引用它）。
+#
+# 这里原先还有一份 try/except 兜底副本，而且兜底那份每项只有 4 个信号词
+# （少了「命令」「表」「旨在」「讨论」）—— 那是个静默陷阱：一旦上面的 import 失败，
+# 界面就会用一套**不同的标准**评阅，分数悄悄变化而没有任何提示。
+# 现在改为只从 pipeline 取；pipeline 是 `from pipeline import run_grading` 的同一模块，
+# 不存在额外失败面。
+from pipeline import fixed_rubric_items as _fixed_rubric_items
 
 
 def fixed_rubric():
-    """每次返回一份干净的固定 rubric（深拷贝，避免被界面改脏）"""
-    return Rubric(items=[i.model_copy(deep=True) for i in FIXED_ITEMS])
+    """每次返回一份干净的固定 rubric（新建对象，避免被界面改脏）"""
+    return Rubric(items=_fixed_rubric_items())
 
 
 def load_gold():

@@ -20,29 +20,22 @@ import json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import parser as P
-from models import Rubric, RubricItem
-from pipeline import run_grading
+from models import Rubric
+from pipeline import run_grading, fixed_rubric_items
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CASES = os.path.join(ROOT, "data", "cases_full")       # 中间产物（gitignore）
 
-ITEMS = [
-    ("r1", "实验目的明确", "开头明确写出本次实验的目的与要掌握的能力", 15,
-     ["实验目的", "旨在", "掌握", "目的"]),
-    ("r2", "环境与步骤", "写清实验环境配置与可复现的操作步骤", 20,
-     ["环境", "步骤", "安装", "配置", "命令"]),
-    ("r3", "核心实现", "给出核心代码、模型结构或关键实现说明", 25,
-     ["代码", "实现", "模型", "算法", "结构"]),
-    ("r4", "结果与数据", "给出运行结果、截图、表格或实验数据", 20,
-     ["结果", "输出", "截图", "数据", "表"]),
-    ("r5", "分析与总结", "对结果进行分析讨论，并有总结或心得", 20,
-     ["分析", "总结", "心得", "讨论", "结论"]),
-]
+#: 固定 5 项标准统一取自 pipeline（全项目唯一来源），本文件不再自存一份。
+#: 原先这里有一份独立副本，信号词与 pipeline 的并不完全一致 ——
+#: 而人工 gold 是按固定标准打的，两份并存会让"离线规则判定"与"对外基准口径"
+#: 悄悄脱钩。详见 pipeline.DEFAULT_RUBRIC_ITEMS 的注释。
+ITEMS = fixed_rubric_items()
 
 
 def make_rubric():
-    return Rubric(items=[RubricItem(id=i, name=n, criteria=c, max_score=s,
-                                    positive_signals=p) for i, n, c, s, p in ITEMS])
+    """每次返回全新对象：RubricItem 会被界面改脏，不能共用同一批实例"""
+    return Rubric(items=fixed_rubric_items())
 
 
 def main():

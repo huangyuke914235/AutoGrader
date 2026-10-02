@@ -27,24 +27,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import parser as P
 from models import Rubric, RubricItem
-from pipeline import run_grading
+from pipeline import run_grading, fixed_rubric_items
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # build_context 对 ≤40000 字直接给全文（正确性优先），所以阈值取 40000 是安全的
 MAX_CHARS = 40000
 
-ITEMS = [
-    RubricItem(id="r1", name="实验目的明确", criteria="开头明确写出本次实验的目的与要掌握的能力",
-               max_score=15, positive_signals=["实验目的", "旨在", "掌握", "目的"]),
-    RubricItem(id="r2", name="环境与步骤", criteria="写清实验环境配置与可复现的操作步骤",
-               max_score=20, positive_signals=["环境", "步骤", "安装", "配置", "命令"]),
-    RubricItem(id="r3", name="核心实现", criteria="给出核心代码、模型结构或关键实现说明",
-               max_score=25, positive_signals=["代码", "实现", "模型", "算法", "结构"]),
-    RubricItem(id="r4", name="结果与数据", criteria="给出运行结果、截图、表格或实验数据",
-               max_score=20, positive_signals=["结果", "输出", "截图", "数据", "表"]),
-    RubricItem(id="r5", name="分析与总结", criteria="对结果进行分析讨论，并有总结或心得",
-               max_score=20, positive_signals=["分析", "总结", "心得", "讨论", "结论"]),
-]
+#: 固定 5 项标准 —— **定义在 pipeline.DEFAULT_RUBRIC_ITEMS，这里只做引用**。
+#: 本文件的这一份曾经是"与人工 gold 对齐"的口径源，而 pipeline 里另有一份信号词
+#: 略有不同的副本；两份并存的隐患见 pipeline.DEFAULT_RUBRIC_ITEMS 的注释。
+#: 收敛后这里保留 ITEMS 这个名字，是因为 batch_ui / 测试都按它引用。
+ITEMS = fixed_rubric_items()
 
 
 def main():

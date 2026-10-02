@@ -62,7 +62,25 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--offline", action="store_true", help="用离线规则引擎（零成本）")
     ap.add_argument("--no-recheck", action="store_true", help="关闭一致性复核（更快更省）")
+    ap.add_argument("--force", action="store_true",
+                    help="允许用不同引擎覆盖已有队列（会把对外公布的数字改掉）")
     args = ap.parse_args()
+
+    # 与 build_demo.py 同一道保护：真实模型队列是有成本换来的，
+    # 而且主页/PPT/README 引用的就是它的数字。离线模式重跑一次就会把它换掉，
+    # 所有对外数字随之对不上 —— 那种不一致不报错，只是慢慢对不上，最难查。
+    want = "rule" if args.offline else "model"
+    if os.path.exists(OUT) and not args.force:
+        try:
+            with open(OUT, "r", encoding="utf-8") as f:
+                have = (json.load(f).get("engine") or "")
+        except Exception:
+            have = ""
+        if have and have != want:
+            print(f"已存在「{have}」引擎的队列 {os.path.relpath(OUT, ROOT)}，"
+                  f"本次要用「{want}」——覆盖会改掉对外数字。")
+            print("确认要覆盖请加 --force。")
+            return 1
 
     rub = default_rubric()
     files = (sorted(f for f in os.listdir(CLASS_SAMPLES) if f.endswith(".txt"))

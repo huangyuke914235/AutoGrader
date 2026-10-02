@@ -48,7 +48,20 @@ def _out_dir() -> str:
     return d
 
 
-def build_one(rid: str, samples: str, live: bool, use_ocr: bool, max_pages: int) -> bool:
+def existing_engine(rid: str) -> str:
+    """已存在的预置结果是用什么引擎产出的（没有则返回空串）"""
+    p = os.path.join(_out_dir(), rid + ".json")
+    if not os.path.exists(p):
+        return ""
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return ((json.load(f).get("_meta") or {}).get("engine") or "")
+    except Exception:
+        return ""
+
+
+def build_one(rid: str, samples: str, live: bool, use_ocr: bool, max_pages: int,
+              force: bool = False) -> bool:
     src = None
     for ext in (".pdf", ".docx", ".txt", ".md"):
         cand = os.path.join(samples, rid + ext)
@@ -57,6 +70,17 @@ def build_one(rid: str, samples: str, live: bool, use_ocr: bool, max_pages: int)
             break
     if src is None:
         print(f"跳过 {rid}：样本目录里没有这个文件")
+        return False
+
+    # 防止「用便宜引擎覆盖贵引擎」：真实模型结果是有成本换来的，
+    # 而且**对外公布的分数就是它**。离线规则引擎重跑一次就会把它悄悄换掉，
+    # 主页案例、PPT、README 里的数字随之全部对不上 —— 这个坑本文件已经踩过一次
+    # （用 --no-publish 做验证时把三份真实模型结果覆盖成了规则引擎产物）。
+    want = "model" if live else "rule"
+    have = existing_engine(rid)
+    if have and have != want and not force:
+        print(f"跳过 {rid}：现有结果是「{have}」引擎产物，本次要用「{want}」——"
+              f"覆盖会让对外数字变化。确认要覆盖请加 --force")
         return False
 
     full_text, sections = P.parse_file(src)
@@ -180,6 +204,8 @@ def main():
     ap.add_argument("--first", help="指定主页默认展示的案例 ID（放在案例列表第一位）")
     ap.add_argument("--no-publish", action="store_true",
                     help="只生成应用用的预置结果，不更新主页案例（docs/cases/）")
+    ap.add_argument("--force", action="store_true",
+                    help="允许用不同的引擎覆盖已有预置结果（会把对外公布的数字改掉）")
     args = ap.parse_args()
 
     samples = _sample_dir()
@@ -204,7 +230,8 @@ def main():
           f"{' + 多模态 OCR' if args.ocr else ''}")
     ok, published = 0, []
     for order, rid in enumerate(ids):
-        r = build_one(rid, samples, args.live, args.ocr, args.max_pages)
+        r = build_one(rid, samples, args.live, args.ocr, args.max_pages,
+                      force=args.force)
         if not r:
             continue
         ok += 1

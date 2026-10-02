@@ -16,14 +16,12 @@ import re
 import json
 import time
 import uuid
-import tempfile
 import datetime
 
 import streamlit as st
 import pandas as pd
 
 import parser as P
-import prompts
 import ocr
 import batch_ui
 import class_ui
@@ -40,7 +38,7 @@ from pipeline import (run_grading, stage_rubric, rubric_source_hash,
                       run_offline_grading, run_ocr_enrichment, apply_ocr_to_runinfo,
                       load_first_demo_result, demo_candidates, load_demo_result,
                       rule_feedback, default_rubric)
-from llm import (demo_mode, ai_ready, ai_blocked_reason, diagnose,
+from llm import (demo_mode, ai_blocked_reason, diagnose,
                  temperature_allowed)
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -307,7 +305,10 @@ else:
     _SAMPLE_NOTE = "云端演示样本为「证据窗口裁剪版」（与公开案例一致），本地运行请使用完整样本"
 RESULTS = os.path.join(ROOT, "data", "results")
 TMPDIR = os.path.join(ROOT, "data", "tmp_uploads")
-IS_CLOUD = not os.path.isdir(os.path.join(ROOT, "data", "samples"))
+# 注：这里曾有一个 IS_CLOUD = (没有 data/samples) 的常量，从未被使用，
+# 而且它的判据与真正决定"要不要落盘"的 _public_host() **不是一回事**
+# （前者看仓库里有没有私有样本，后者看是否跑在公网托管上）。
+# 两个含义不同的东西并存，迟早有人拿错那个 —— 已删除，统一用 _public_host()。
 
 _SID_RE = re.compile(r"^[0-9a-f]{8,64}$")
 

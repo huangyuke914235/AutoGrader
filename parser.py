@@ -340,6 +340,60 @@ def inspect_text(full_text: str, n_sections: int = 0, pages: int = 0) -> dict:
     }
 
 
+def collapse_char_spacing(text: str) -> str:
+    """把「逐字加空格」还原成正常写法：`J a v a` → `Java`、`f a l s e` → `false`。
+
+    为什么必须做（2026-10 实测发现）：PDF 里中英混排常被渲染成字距很宽的形态，
+    **多模态 OCR 会照着图上的间隔原样转录**（提示词明确要求"原样转录、保留缩进"，
+    它执行得很忠实）。于是模型给出的 quote 带字距，而正文是抽取出来的紧凑写法，
+    逐字校验直接失败 —— 引用被作废、判定被降级，而**真实证据其实就在原文里**。
+    这与「PDF 断行」是同一类 artifact，处理方式也必须一致：两侧用同一套规则规范化。
+
+    判别依据是**形态**，不是长度：
+
+    - `J a v a` / `f a l s e`：一个字被逐字拆开、中间夹着小写字母 → 字距 artifact，合并；
+    - `1 5 0 0`：数字被逐位整齐拆开 → 同样合并；
+    - `A B C D` / `I O`：全大写，本身就是并列写法（选项、缩写）→ **保持原样**；
+    - `12 34 567 8`：token 位数不齐 → 保持原样（那是真实的「一行若干数据」）。
+
+    本规则只处理**整齐的**逐字符拆开（每个 token 恰好一个字符、间距一致），
+    因为那才是字距 artifact 的形态。参差不齐的 token（例如 `0 . 0 3 8` 里小数点
+    自己占一个 token）不在处理范围内 —— 边界明确比"猜得更全"重要：
+    归一只负责消掉**可判定**的 artifact，猜不出来的交给证据校验去重跑（有兜底）。
+
+    中文字符之间无论几个空格都直接删掉：中文正文里字间空格没有任何语义。
+
+    这不是放宽匹配规则：正文与引用**两侧都过这个函数**，匹配仍然是精确匹配。
+    """
+    if not text:
+        return text
+    # 规则 1：中文字符之间的空格（含多个）一律去掉
+    out = re.sub(r"(?<=[\u4e00-\u9fff])[ \t]+(?=[\u4e00-\u9fff])", "", text)
+    # 规则 2：逐字拆开的 token（每个恰好 1 字符、连续 ≥4 个）→ 合并；
+    #         然后把数字之间的小数点两侧空格收掉。
+    #
+    # 这两步必须**放在同一个迭代里**，因为它们互相依赖：
+    # `0 . 0 3 8` 要先合并成 `0 . 038`，才能收成 `0.038`；
+    # 而只做其中任何一步，都会留下 `0.0 3 8` 这种既不等于原文、
+    # 也不等于 OCR 输入的中间态 —— 那是最糟的结果（引用照样校验不过）。
+    pat = re.compile(r"(?<![0-9A-Za-z])([0-9A-Za-z])(?: ([0-9A-Za-z])){3,}(?![0-9A-Za-z])")
+
+    def _merge(m):
+        run = m.group(0)
+        letters = run.replace(" ", "")
+        if letters.isupper():
+            return run          # 全大写缩写：本身就是并列写法，保留原样，不猜
+        return letters
+
+    for _ in range(8):
+        new = pat.sub(_merge, out)
+        new = re.sub(r"(?<=\d)[ \t]*\.[ \t]*(?=\d)", ".", new)
+        if new == out:
+            break
+        out = new
+    return out
+
+
 def canonical(text: str) -> str:
     """把正文规范成「所有连续空白都压成一个空格」的单一形态。
 
@@ -349,8 +403,9 @@ def canonical(text: str) -> str:
 
     这不是放宽匹配规则：正文与引用**两侧用同一套规则**规范化，
     匹配仍然是精确匹配，只是把「抽取产生的换行」这个 artifact 消掉了。
+    同源的第二类 artifact 是「逐字加空格」，由 collapse_char_spacing 处理（见其注释）。
     """
-    return re.sub(r"\s+", " ", text).strip()
+    return collapse_char_spacing(re.sub(r"\s+", " ", text).strip())
 
 
 def parse_file(path: str, keep_lines: bool = False):

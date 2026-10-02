@@ -5,11 +5,14 @@
 
 做三件事：
 1. 读 .env 里的密钥与模型，先打印脱敏后的配置（不打印密钥本身）
-2. 对 tools/_ocr_test.pdf 逐页读图，打印每页转录结果
+2. 对测试夹具（tests/fixtures/sample_report.pdf）逐页读图，打印每页转录结果
 3. 逐条核对**只有截图里才有**的关键数值是否被读出来 —— 这是"OCR 真的有用"的判据
 
-关键判据不是"有没有返回文本"，而是：截图里的余额数字、操作次数、失败原因
+关键判据不是"有没有返回文本"，而是：截图里的余额数字、失败原因、操作次数
 这些**正文里根本没有**的信息，是否出现在了转录结果里。
+
+夹具由 tools/make_test_fixtures.py 生成，它自己会断言这些值不在文本层中 ——
+否则本脚本即使 OCR 完全失效也能"通过"，那就成了自欺。
 """
 import os
 import sys
@@ -20,20 +23,16 @@ import ocr
 from llm import get_env
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PDF = os.path.join(ROOT, "tools", "_ocr_test.pdf")
+PDF = os.path.join(ROOT, "tests", "fixtures", "sample_report.pdf")
 
-# 这些字符串只在截图里出现，正文文本层里没有（由 make_ocr_test_pdf.py 保证）
-MUST_FIND = [
-    "1500.00",        # 存入后的余额
-    "1200.00",        # 取款后的余额
-    "余额不足",        # 失败原因
-    "成功 3 次",       # 统计
-]
+# 与 make_test_fixtures.SCREENSHOT_ONLY 保持一致：这些字符串只在截图里出现
+MUST_FIND = ["1500.00", "1200.00", "余额不足", "成功 3 次"]
 
 
 def main():
     if not os.path.exists(PDF):
-        print(f"缺少测试文件：{PDF}\n请先跑 python tools/make_ocr_test_pdf.py")
+        print(f"缺少测试夹具：{PDF}")
+        print("请先跑 python tools/make_test_fixtures.py")
         return 1
 
     key = get_env("LLM_API_KEY", "")

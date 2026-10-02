@@ -15,10 +15,16 @@ sys.path.insert(0, ROOT)
 import parser as P
 
 PNG_SIG = b"\x89PNG\r\n\x1a\n"
+
+#: 随仓库发布的测试夹具（自造内容，可安全公开）。
+#: 为什么必须有它：本测试原先只找 `data/raw/*.pdf`（本机私有样本，已 gitignore），
+#: 于是**在干净克隆与 CI 里永远 skip** —— 而它守的正是「版面渲染」这条链路，
+#: 那条链路曾经因为一个未导入的 `fitz` 静默失败了很久都没人发现。
+#: 关键路径的测试不允许依赖本机私有数据。
+FIXTURES = os.path.join(ROOT, "tests", "fixtures")
 CANDIDATES = [
-    os.path.join(ROOT, "data", "raw", "*.pdf"),                       # 主仓库的本地原始样本
-    os.path.join(os.path.dirname(ROOT), "新建文件夹 (3)",              # 旧目录里的备份样本
-                 "autograder", "data", "raw", "*.pdf"),
+    os.path.join(FIXTURES, "*.pdf"),                                  # 仓库内置夹具（首选）
+    os.path.join(ROOT, "data", "raw", "*.pdf"),                       # 本机私有原始样本
 ]
 
 
@@ -47,7 +53,7 @@ def test_missing_file_raises_explicitly(tmp_path):
         P.render_pdf_pages(str(tmp_path / "nope.pdf"))
 
 
-@pytest.mark.skipif(_any_pdf() is None, reason="本机没有可用的原始 PDF 样本")
+@pytest.mark.skipif(_any_pdf() is None, reason="没有可用的 PDF（含仓库内置夹具，不应发生）")
 def test_renders_png_pages_with_cap():
     pdf = _any_pdf()
     pages = P.render_pdf_pages(pdf, max_pages=2)
@@ -59,7 +65,17 @@ def test_renders_png_pages_with_cap():
     assert total >= len(pages)
 
 
-@pytest.mark.skipif(_any_pdf() is None, reason="本机没有可用的原始 PDF 样本")
+def test_repo_fixture_exists_so_this_suite_never_skips():
+    """仓库必须自带 PDF 夹具：否则上面两条测试在干净克隆里永远 skip。
+
+    这条断言本身就是"防回归"——有人清理仓库时顺手删掉夹具，它会立刻失败，
+    而不是让关键路径的测试悄悄失去覆盖。
+    """
+    fx = sorted(glob.glob(os.path.join(FIXTURES, "*.pdf")))
+    assert fx, f"tests/fixtures 下没有 PDF 夹具：{FIXTURES}"
+
+
+@pytest.mark.skipif(_any_pdf() is None, reason="没有可用的 PDF")
 def test_rendering_produces_no_text_and_no_files(tmp_path):
     """渲染只返回内存字节：不产生文本、不落盘"""
     pdf = _any_pdf()

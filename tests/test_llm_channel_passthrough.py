@@ -13,6 +13,8 @@
 这组测试锁住修复后的行为。**第 3、4 条是核心回归**：
 只要学生显式自带密钥，DEMO_MODE 不得再拦。
 """
+import os
+
 import pytest
 
 import pipeline
@@ -100,24 +102,78 @@ def test_demo_mode_does_not_block_student_key(spy, monkeypatch):
 
 
 # ---------- DEMO_MODE 原有的拦截力必须原样保留 ----------
+#
+# 2026-10 变更说明：DEMO_MODE 下没有显式密钥时，现在会先尝试加载**仓库内置的预置
+# 评阅结果**（`data/demo/*.json`）。这是为了让公开 Demo 不填 Key 也能看到完整产品，
+# 而旧实现只有 DEMO_RESULT 一个来源、且它恒为 None，于是点「开始评阅」必然抛异常。
+#
+# 但底线不能动：**绝不因为 DEMO_MODE 就偷偷用平台配置去调模型**（那是烧钱事故）。
+# 所以下面两条必须同时成立：
+#   ① 有预置结果 → 返回它，且一次模型调用都不发生；
+#   ② 没有预置结果 → 抛异常，同样一次模型调用都不发生。
 
-def test_demo_mode_still_blocks_platform_config(monkeypatch):
-    """没有显式密钥时（可能烧平台的钱）拦截照旧"""
+def test_demo_mode_never_calls_model_even_with_platform_key(tmp_path, monkeypatch):
+    """**核心安全测试**：DEMO_MODE + 平台密钥在环境里，也绝不允许真的调用模型。"""
     monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("LLM_API_KEY", "sk-platform-key-should-never-be-used")
+    monkeypatch.setattr(pipeline, "ROOT", str(tmp_path))   # 隔离：没有预置结果
     pipeline.DEMO_RESULT = None
-    with pytest.raises(RuntimeError) as ei:
-        pipeline.run_grading(FULL, [], "原始标准", rubric=Rubric(items=[ITEM]),
-                             enable_recheck=False, llm_cfg=None)
-    assert "DEMO_MODE" in str(ei.value)
+    called = []
+
+    def spy(*a, **kw):
+        called.append(kw)
+        raise AssertionError("DEMO_MODE 下发生了真实模型调用 —— 这是烧钱事故")
+
+    monkeypatch.setattr(pipeline, "call_json", spy)
+    try:
+        with pytest.raises(RuntimeError) as ei:
+            pipeline.run_grading(FULL, [], "原始标准", rubric=Rubric(items=[ITEM]),
+                                 enable_recheck=False, llm_cfg=None)
+        assert "DEMO_MODE" in str(ei.value)
+        assert not called, "拦截失败：模型被真的调用了"
+    finally:
+        pipeline.DEMO_RESULT = None
 
 
-def test_demo_mode_returns_preset_result_without_key(monkeypatch):
+def test_demo_mode_serves_preset_result_without_calling_model(tmp_path, monkeypatch):
+    """有预置结果时返回它 —— 这是公开 Demo「零配置可看」的实现方式。"""
     monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.setenv("LLM_API_KEY", "sk-platform-key-should-never-be-used")
+    monkeypatch.setattr(pipeline, "ROOT", str(tmp_path))
+    called = []
+    monkeypatch.setattr(pipeline, "call_json",
+                        lambda *a, **kw: called.append(kw) or (_ for _ in ()).throw(
+                            AssertionError("不该调用模型")))
     pipeline.DEMO_RESULT = ("PRE",)
     try:
         got = pipeline.run_grading(FULL, [], "原始标准",
                                    rubric=Rubric(items=[ITEM]), llm_cfg=None)
         assert got == ("PRE",)
+        assert not called
+    finally:
+        pipeline.DEMO_RESULT = None
+
+
+def test_demo_mode_loads_preset_from_disk_when_memory_empty(tmp_path, monkeypatch):
+    """内存里没有、但磁盘上有预置结果时，也必须能返回（旧实现的缺口就在这里）"""
+    import json as _json
+    from models import GradingResult
+    monkeypatch.setenv("DEMO_MODE", "true")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.setattr(pipeline, "ROOT", str(tmp_path))
+    d = tmp_path / "data" / "demo"
+    os.makedirs(d, exist_ok=True)
+    res = pipeline.run_offline_grading(FULL, [], pipeline.default_rubric().items,
+                                       report_id="PRESET")
+    (d / "T1.json").write_text(_json.dumps(
+        {"_meta": {"engine": "rule"}, "result": _json.loads(res.model_dump_json())},
+        ensure_ascii=False), encoding="utf-8")
+    pipeline.DEMO_RESULT = None
+    try:
+        got = pipeline.run_grading(FULL, [], "原始标准",
+                                   rubric=Rubric(items=[ITEM]), llm_cfg=None)
+        assert isinstance(got, GradingResult)
+        assert got.report_id == "PRESET"
     finally:
         pipeline.DEMO_RESULT = None
 

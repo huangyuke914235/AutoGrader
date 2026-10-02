@@ -178,7 +178,7 @@ python -m pytest tests/ -q
 ```
 
 - 全部使用 mock，**不需要 API key、不联网**。当前实测结果：
-  **243 passed / 7 skipped**（217 个测试函数、250 个用例，含参数化展开）。
+  **273 passed / 5 skipped**（278 个用例，含参数化展开；以实际输出为准）。
   以 `python -m pytest tests/ -q` 的实际输出为准。
 - Windows 上若从项目根目录运行并报 `No module named pytest`，是因为 `tests/`
   目录遮蔽了同名包 —— 请先 `cd` 到本目录，或加 `--import-mode=importlib`。

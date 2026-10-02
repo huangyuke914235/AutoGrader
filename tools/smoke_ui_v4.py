@@ -74,8 +74,24 @@ def main():
                     if n_ev == 0:
                         failures.append("载入的结果没有任何证据（演示就失去了意义）")
                     print(f"        载入预置结果：{res.report_id} 总分 {res.total} "
-                          f"判定 {len(res.judgements)} 项 证据 {n_ev} 条 "
+                          f"引擎 {res.model} 判定 {len(res.judgements)} 项 证据 {n_ev} 条 "
                           f"全文 {len(at.session_state.get('full_text') or '')} 字")
+                    # 交叉校验：界面上拿到的这一份，必须就是磁盘上那一份。
+                    # 不做这一步的话，Streamlit 的缓存或旧文件会让"界面看起来对、
+                    # 数据其实是旧的"，而这种错最难被发现。
+                    import json as _json
+                    import pipeline as _PL
+                    disk_path = _PL.demo_candidates()[0]
+                    with open(disk_path, "r", encoding="utf-8") as _f:
+                        _disk = _json.load(_f)["result"]
+                    if abs(float(_disk.get("total", -1)) - float(res.total)) > 1e-6:
+                        failures.append(
+                            f"界面载入的总分 {res.total} 与磁盘上的 "
+                            f"{_disk.get('total')} 不一致（{disk_path}）——"
+                            f"可能是缓存或读到了旧文件")
+                    else:
+                        print(f"        交叉校验通过：与磁盘 {disk_path.split('demo')[-1]} "
+                              f"一致（总分 {_disk.get('total')}）")
     except Exception as e:
         failures.append(f"载入预置结果时出错：{type(e).__name__}: {e}")
 

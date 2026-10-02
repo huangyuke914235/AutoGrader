@@ -153,10 +153,22 @@ python -m pytest tests/ -q
 python tools/build_demo.py          # 离线规则引擎生成（零成本、可复现）
 python tools/build_demo.py --live --ocr   # 用真实模型 + 多模态 OCR 生成（需 LLM_API_KEY）
 python tools/verify_demo.py         # 出厂检查：证据是否逐字可校验、总分是否等于各项之和
+python tools/publish_demo.py --first S03  # 把已有结果发布成主页案例（脱敏裁剪，不重跑模型）
+python tools/show_demo.py S03       # 人工核对某一份的判定、证据与评语
 ```
 
 预置结果必须**如实标注引擎来源**：规则引擎产物会写明「未调用模型、一律转人工复核」，
 不会被伪装成 AI 终评。
+
+**主页案例与演示结果是同一次评阅**（`docs/cases/` 由 `publish_demo.py` 从
+`data/demo/` 脱敏裁剪而来，正文只保留「每条证据 ±500 字」的窗口，
+并通过学号/手机/邮箱扫描才允许写出）。发布脚本**不调用模型** ——
+重跑会产生新结果，于是网页上的分数与 Demo 里载入的分数对不上，
+而评委正好会拿这两处对照。案例列表按字母序，**默认展示哪一个由
+`manifest.json` 的 `default` 字段**决定（当前是 S03：15 条证据、含一次真实的一致性复核分歧）。
+
+> 当前仓库内的预置结果与主页案例均为**真实模型产物**（`deepseek-flash`），
+> 引擎字段如实写着模型名与调用统计；用规则引擎重新生成会覆盖成「未调用模型」的标注。
 
 ## 多模态 OCR（截图与扫描件）
 

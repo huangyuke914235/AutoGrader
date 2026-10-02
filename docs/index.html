@@ -291,16 +291,25 @@ document.querySelectorAll('.repoDoc').forEach(function(a){
   a.href = REPO_URL + '/blob/main/' + encodeURI(a.getAttribute('data-doc'));
 });
 
-/* ====== 公开案例列表：优先读 docs/cases/manifest.json（防止列表与文件不一致） ====== */
+/* ====== 公开案例列表：优先读 docs/cases/manifest.json（防止列表与文件不一致） ======
+   cases 按字母序排列（发布脚本与安全测试都依赖这个顺序）；
+   **默认展示哪一个由 manifest.default 指定**，不靠数组顺序 —— 否则"我想让 S03 先出现"
+   就得去动列表顺序，那会同时破坏别处的假设。S03 是证据链最完整的一份（15 条证据、
+   含一次真实的一致性复核分歧），适合当评委看到的第一眼。 */
 var CASES = ["S02", "S03", "S04"];
+var DEFAULT_CASE = "S03";
 fetch('cases/manifest.json')
   .then(function(r){ return r.ok ? r.json() : null; })
   .then(function(m){
     if (m && m.cases && m.cases.length) {
       CASES = m.cases;
+      if (m.default && CASES.indexOf(m.default) >= 0) DEFAULT_CASE = m.default;
       var sel = document.getElementById('caseSel');
       sel.innerHTML = '';
       CASES.forEach(function(id){ var o = document.createElement('option'); o.value = id; o.textContent = id; sel.appendChild(o); });
+      if (sel.value !== DEFAULT_CASE && CASES.indexOf(DEFAULT_CASE) >= 0) {
+        sel.value = DEFAULT_CASE;
+      }
     }
   })
   .catch(function(){ /* 本地直接打开文件时 fetch 会失败，退回内置列表即可 */ });

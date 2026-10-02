@@ -21,6 +21,7 @@
 """
 import argparse
 import datetime
+import json
 import os
 import sys
 
@@ -106,7 +107,68 @@ def build_one(rid: str, samples: str, live: bool, use_ocr: bool, max_pages: int)
     n_ev = sum(1 for j in res.judgements if j.evidence)
     print(f"  -> {os.path.relpath(out, ROOT)}  总分 {res.total}  "
           f"带证据 {n_ev}/{len(res.judgements)}  引擎 {engine}")
-    return True
+    return res, full_text
+
+
+def publish_case(rid: str, res, full_text: str, order: int) -> str:
+    """把预置结果同时发布成**主页可看的脱敏案例**（docs/cases/<id>.json）
+
+    为什么从同一份数据出两个产物（`data/demo/` 给应用、`docs/cases/` 给主页）：
+    两边各自构建会出现「网页上讲的结果和 Demo 里跑的不是同一次」——
+    评委正好会拿这两处对照，对不上就是硬伤。
+
+    脱敏规则直接复用 `publish_cases.build_public_text` / `check_public`，不重写一份：
+    正文只保留「每条证据 ±500 字」的窗口，且必须通过学号/手机/邮箱扫描才允许写出。
+    """
+    from publish_cases import build_public_text, check_public, CASES
+
+    data = {
+        "report_id": res.report_id,
+        "filename": rid + ".txt",
+        "total_score": res.total,
+        "full_text": full_text,
+        "items": [{"id": it.id, "name": it.name, "max_score": it.max_score}
+                  for it in res.items],
+        "judgements": [json.loads(j.model_dump_json()) for j in res.judgements],
+        "feedback": (json.loads(res.feedback.model_dump_json())
+                     if res.feedback else {"summary": "", "suggestions": []}),
+        "engine": res.model,
+        "_order": order,
+    }
+    data["full_text"] = build_public_text(full_text, data["judgements"])
+    data["_is_public"] = True
+    data["_note"] = "正文已裁剪为证据片段窗口，仅用于公开演示"
+
+    problems = check_public(data)
+    if problems:
+        # 宁可失败，也不把不合规的内容写进公开目录
+        raise SystemExit(f"{rid} 未通过公开自检：{problems}")
+
+    os.makedirs(CASES, exist_ok=True)
+    out = os.path.join(CASES, rid + ".json")
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+    return out
+
+
+def write_manifest(entries, default_id: str = ""):
+    """主页案例列表的唯一来源。
+
+    两条约束必须同时满足，别为了"让某个案例先出现"去动列表顺序：
+    - `cases` **按字母序**：`tests/test_security.py` 用它校验列表与文件一致；
+    - 默认展示哪一个由 `default` 字段表达，主页读它（见 docs/index.html）。
+    """
+    from publish_cases import MANIFEST
+    ids = sorted(e["id"] for e in entries)
+    payload = {
+        "cases": ids,
+        "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+    }
+    if default_id and default_id in ids:
+        payload["default"] = default_id
+    with open(MANIFEST, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=1)
+    return MANIFEST
 
 
 def main():
@@ -115,6 +177,9 @@ def main():
     ap.add_argument("--live", action="store_true", help="用真实模型跑（需要 LLM_API_KEY）")
     ap.add_argument("--ocr", action="store_true", help="评阅前先做多模态 OCR（需要支持视觉的模型）")
     ap.add_argument("--max-pages", type=int, default=O.DEFAULT_MAX_PAGES)
+    ap.add_argument("--first", help="指定主页默认展示的案例 ID（放在案例列表第一位）")
+    ap.add_argument("--no-publish", action="store_true",
+                    help="只生成应用用的预置结果，不更新主页案例（docs/cases/）")
     args = ap.parse_args()
 
     samples = _sample_dir()
@@ -127,15 +192,33 @@ def main():
         print(f"样本目录为空：{samples}")
         return 1
 
+    # 主页默认案例排到第一位：评委打开主页看到的那一份，应当是证据链最完整的
+    if args.first and args.first in ids:
+        ids = [args.first] + [i for i in ids if i != args.first]
+    elif args.first:
+        print(f"提示：--first {args.first} 不在样本列表里，忽略")
+
     print(f"样本目录：{os.path.relpath(samples, ROOT)}")
     print(f"输出目录：{os.path.relpath(_out_dir(), ROOT)}")
     print(f"模式：{'真实模型' if args.live else '离线规则引擎'}"
           f"{' + 多模态 OCR' if args.ocr else ''}")
-    ok = 0
-    for rid in ids:
-        if build_one(rid, samples, args.live, args.ocr, args.max_pages):
-            ok += 1
+    ok, published = 0, []
+    for order, rid in enumerate(ids):
+        r = build_one(rid, samples, args.live, args.ocr, args.max_pages)
+        if not r:
+            continue
+        ok += 1
+        res, full_text = r
+        if not args.no_publish:
+            out = publish_case(rid, res, full_text, order)
+            published.append({"id": rid, "order": order})
+            print(f"     -> 主页案例 {os.path.relpath(out, ROOT)}"
+                  f"（{res.total} 分，已裁剪脱敏）")
     print(f"完成：{ok} 份预置结果已写入 {os.path.relpath(_out_dir(), ROOT)}/")
+    if published:
+        m = write_manifest(published)
+        order_ids = [e["id"] for e in sorted(published, key=lambda x: x["order"])]
+        print(f"主页案例列表已更新：{os.path.relpath(m, ROOT)}　顺序 {order_ids}")
     print("这份产物会随仓库发布 —— 公开 Demo 打开即可载入，无需 API Key。")
     return 0
 

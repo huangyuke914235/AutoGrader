@@ -110,6 +110,34 @@ def test_make_demo_does_not_write_public_dir():
     assert '"docs", "cases"' not in src
 
 
+def test_manifest_default_is_valid_and_does_not_reorder_cases():
+    """主页默认案例由 manifest.default 表达，**不是**靠数组顺序。
+
+    为什么这条要单独守：`cases` 必须保持字母序（上面那条测试依赖它），
+    所以"想让某个案例先出现"只能通过 default 字段实现。
+    一旦有人改成靠顺序表达默认值，就会同时踩坏列表一致性与主页取数两处。
+    """
+    manifest = os.path.join(ROOT, "docs", "cases", "manifest.json")
+    m = json.load(open(manifest, encoding="utf-8"))
+    assert m["cases"] == sorted(m["cases"]), "cases 必须保持字母序"
+    if "default" in m:
+        assert m["default"] in m["cases"], "default 必须是 cases 里真实存在的案例"
+
+    html = open(os.path.join(ROOT, "docs", "index.html"), encoding="utf-8").read()
+    assert "m.default" in html, "主页没有读取 manifest.default，默认案例不会生效"
+
+
+def test_publish_demo_does_not_rejudge():
+    """发布主页案例的脚本**不许调用模型**。
+
+    重跑会产生一次新的结果（模型有波动），于是主页显示的分数与 Demo 里载入的
+    分数对不上 —— 评委正好会拿这两处对照。所以发布只能是脱敏与裁剪。
+    """
+    src = open(os.path.join(ROOT, "tools", "publish_demo.py"), encoding="utf-8").read()
+    for forbidden in ("run_grading(", "call_json(", "run_offline_grading("):
+        assert forbidden not in src, f"发布脚本里出现了 {forbidden}，可能重新评阅了一次"
+
+
 def test_sources_config_is_ignored():
     """本机样本清单必须被 .gitignore 排除"""
     gitignore = open(os.path.join(ROOT, ".gitignore"), encoding="utf-8").read()

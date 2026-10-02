@@ -235,10 +235,36 @@
 S07 的"核心实现"因此被判 0 分（32 分 vs 人工 63）。这一处修掉后最终复测为 <strong>7.56 分</strong>，
 S07 回到 65 分。<strong>到此为止我们不再为降低这个数字改动任何东西。</strong>）</p>
 
+<h2>班级学情：从「一份报告几分」到「这个班卡在哪」</h2>
+<p style="font-size:14px;line-height:1.9">
+赛题方向是「AI + 教学<strong>管理</strong>助手」，而管理真正要回答的不是"这份报告几分"，
+而是三个决策问题：<strong>这个班普遍卡在哪 · 下一节课该讲什么 · 谁需要我找一趟。</strong>
+一批报告跑完会自动聚合成这四类东西：</p>
+<div class="cards" style="margin:14px 0">
+  <div class="card"><div class="k">共性短板</div><div class="v">按薄弱率排序</div>
+    <div class="s">逐评分点统计「拿满 / 部分拿到 / 完全缺失」——排最前面的就是最该占用课堂时间的那一项</div></div>
+  <div class="card"><div class="k">建议动作</div><div class="v">四类</div>
+    <div class="s">课堂教学 / 作业说明 / 评分标准 / 需人工处理。整项缺失通常意味着要求没落到纸面，建议就不是"加强练习"</div></div>
+  <div class="card"><div class="k">可当范例讲的报告</div><div class="v">直接列出来</div>
+    <div class="s">教学建议写着"用达标样本做对照"，那就先把样本找好，别让老师自己翻</div></div>
+  <div class="card"><div class="k">需要关注的学生</div><div class="v">按总分升序</div>
+    <div class="s">带最弱项、完全缺失项数与待复核数——教师先看最需要找的那几个</div></div>
+</div>
+<p style="font-size:13.5px;color:var(--tx2);line-height:1.9">
+<strong>分数来自模型，共性短板来自算术。</strong>这个区分在界面上是分开写的：
+前者有波动、需要人工终裁；后者是确定性统计，可以放心拿去做教学决策。<br>
+两条纪律由自动化测试守着：<strong>① 系统的问题不算到学生头上</strong> ——
+调用失败、召回模式强制转人工的 miss 一律不进"学生没做到"的统计，
+否则老师会去讲一个其实没问题的知识点；<strong>② 样本不足就说样本不足</strong> ——
+有效样本少于 8 份时明确提示不要据此下"这个班普遍如何"的结论。<br>
+演示队列实测（12 份，含 9 份典型形态的自造样本与 3 份真实样本）：
+均分 <strong>73</strong>、区间 <strong>0~100</strong>、及格率 <strong>66.7%</strong>，
+系统识别出「分析与总结」是共性短板（<strong>7/12</strong> 未拿满，该项均分 12.08/20）。</p>
+
 <h2>项目定位与能力边界（请务必先读这一节）</h2>
 <div class="card" style="text-align:left">
 <ul style="font-size:14px;line-height:1.9;margin:0;padding-left:20px">
-  <li>这是一个<strong>竞赛原型 / 教师辅助初评工具</strong>，不是可以无人监督直接发布正式成绩的自动评分系统。</li>
+  <li>这是一个<strong>教师辅助初评 + 班级学情工具</strong>，不是可以无人监督直接发布正式成绩的自动评分系统。</li>
   <li>系统给出的是<strong>带证据的初评</strong>，最终成绩必须由教师确认：界面里每一项都能改分，改分必须填理由并留痕。</li>
   <li><strong>图片与截图：走多模态 OCR 读取</strong>（<code>deepseek-flash</code>，支持视觉）。
       每一页渲染成图片后由模型转录，产出带「第 N 页」坐标的可引用正文，

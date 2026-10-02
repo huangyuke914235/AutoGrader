@@ -226,13 +226,19 @@ def _grading_pdf_cached(res_json: str, course: str) -> bytes:
 
 
 def show_page_preview():
-    """展示原始版面：只渲染 PDF，图片内容不参与判定"""
+    """展示原始版面：给人核对截图/图表/公式（OCR 是另一条路，见 ocr.py）
+
+    文案必须跟着「本次有没有开 OCR」走：开了读图却说「系统不做 OCR」，
+    是自相矛盾的假话，会直接削弱老师对整个系统的信任。
+    """
     images = st.session_state.get("page_images") or []
     if not images:
         return
     total = st.session_state.get("page_images_total", len(images))
+    _ocr_info = st.session_state.get("ocr_info") or {}
+    _ocr_on = bool(_ocr_info.get("used"))
     with st.expander(f"原始版面对照（{len(images)} 页，供人工核对）", expanded=False):
-        st.caption(P.preview_caption(len(images), total))
+        st.caption(P.preview_caption(len(images), total, ocr_on=_ocr_on))
         for i, img in enumerate(images, 1):
             st.image(img, caption=f"第 {i} 页", use_container_width=True)
 

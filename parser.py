@@ -257,8 +257,9 @@ def render_pdf_pages(path: str, max_pages: int = PREVIEW_MAX_PAGES,
     边界说明（很重要，别越界）：
     - 本函数**不产生任何文本**，因此不参与判定、不进证据链、不影响任何指标；
       它解决的是"老师想核对某张截图/图表/公式，却要另外打开原文件"的不便。
-    - 本函数**不做 OCR**：图片里的内容依然是"看得见、读不到"，
-      相关判定仍按现状处理，界面会如实说明这一点。
+    - 本函数**不做 OCR**：它只负责"给人看"。要让图片内容进入证据链，
+      走 `ocr.py`（多模态读图，产出带页码的可引用文本）—— 两者是分开的两件事，
+      不要在这里偷偷加识别逻辑，否则"人看的"与"模型读的"就会混成一份不可追溯的东西。
     - 隐私：只在内存中返回字节，调用方用完即弃，**不落盘**。
 
     仅支持 PDF；其它格式返回空列表。
@@ -283,13 +284,20 @@ def render_pdf_pages(path: str, max_pages: int = PREVIEW_MAX_PAGES,
     return pages
 
 
-def preview_caption(n_rendered: int, total_pages: int) -> str:
-    """预览区说明文案：把「能看」与「能读」的区别讲清楚"""
+def preview_caption(n_rendered: int, total_pages: int, ocr_on: bool = False) -> str:
+    """预览区说明文案：把「能看」与「能读」的区别讲清楚
+
+    ocr_on=True 时必须换一套说法：此时图片内容**已经**被多模态 OCR 读进证据链，
+    再写「系统不做 OCR」就是自相矛盾的假话。
+    """
     head = f"已渲染 {n_rendered} 页原始版面"
     if total_pages > n_rendered:
         head += f"（共 {total_pages} 页，仅渲染前 {n_rendered} 页）"
-    return (head + "，仅供人工对照。图片与截图中的内容不参与自动判定"
-                   "（系统不做 OCR，读不到的内容不会成为评分依据）。")
+    if ocr_on:
+        return (head + "，仅供人工对照。本页图片已由多模态 OCR 转录为可引用文本"
+                       "（引用可精确到页）；转录可能有误，请以这里的原始版面对照为准。")
+    return (head + "，仅供人工对照。图片与截图中的内容**未**参与自动判定"
+                   "（未开启 OCR，读不到的内容不会成为评分依据）。")
 
 
 def pdf_page_count(path: str) -> int:
@@ -316,7 +324,8 @@ def inspect_text(full_text: str, n_sections: int = 0, pages: int = 0) -> dict:
         warnings.append("未提取到任何文本：无法评阅，请确认文件不是空文件")
     elif n < SHORT_TEXT_CHARS:
         warnings.append(f"正文仅 {n} 字，疑似扫描件/图片型报告；"
-                        f"本项目不做 OCR，图片与截图中的内容不可见，判定可能严重偏低")
+                        f"建议开启「多模态 OCR」读图，否则截图中的内容不可见、"
+                        f"判定可能严重偏低")
     if n > FULL_TEXT_LIMIT:
         warnings.append(f"正文 {n} 字超过 {FULL_TEXT_LIMIT} 字上限，判定将改用关键词召回模式，"
                         f"可能漏掉未被召回的内容，相关判定建议人工复核")

@@ -347,7 +347,10 @@ def call_json(system: str, user: str, schema, temperature: float = 0.0,
 
     client = _get_client(timeout, api_key=api_key, base_url=base_url)
     if model is None:
-        model = get_env("LLM_MODEL", "deepseek-chat")
+        # 默认值跟供应商表保持一致：deepseek-flash（DeepSeek-V4.1-Flash）同时是
+        # 本项目的**多模态**默认模型 —— 默认值与界面预设不一致会让「测试连接」
+        # 通过、真正评阅时却换了另一个模型，排查起来极其费时。
+        model = get_env("LLM_MODEL", "deepseek-flash")
 
     # 部分模型的 temperature 是平台固定值（Kimi k2.x / k3），传任何自定义值
     # 都会被 400 拒绝 —— 那就整个参数都不传，用它自己的默认值。

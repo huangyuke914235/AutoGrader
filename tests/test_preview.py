@@ -74,6 +74,19 @@ def test_rendering_produces_no_text_and_no_files(tmp_path):
 def test_caption_states_the_boundary():
     """文案必须讲清「看得见但读不到」，否则会变成虚假宣称"""
     one = P.preview_caption(9, 9)
-    assert "9 页" in one and "不参与自动判定" in one and "OCR" in one
+    assert "9 页" in one
+    assert "仅供人工对照" in one
+    assert "未开启 OCR" in one
     many = P.preview_caption(20, 33)
     assert "共 33 页" in many and "仅渲染前 20 页" in many
+
+
+def test_caption_flips_when_ocr_is_on():
+    """开了 OCR 就不能再说「系统不做 OCR」——那会变成自相矛盾的假话"""
+    off = P.preview_caption(9, 9, ocr_on=False)
+    on = P.preview_caption(9, 9, ocr_on=True)
+    assert "未开启 OCR" in off
+    assert "已由多模态 OCR 转录" in on
+    assert "未开启 OCR" not in on
+    # 两个档位都必须提醒老师以原始版面为准（转录可能有误）
+    assert "人工对照" in off and "人工对照" in on

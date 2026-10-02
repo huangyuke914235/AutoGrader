@@ -106,13 +106,18 @@ streamlit run app.py                 # 打开 http://localhost:8502
 
 ```
 LLM_API_KEY=sk-xxxx
-LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_MODEL=deepseek-chat
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-flash
 DEMO_MODE=false
 ```
 
+> **注意 base_url 不带 `/v1`**（DeepSeek 官方文档口径），模型名用 `deepseek-flash`
+> （DeepSeek-V4.1-Flash）。它是本项目的默认模型，**同时支持多模态读图**，
+> 所以 OCR 与评阅可以用同一个通道、同一个 Key。
+
 `DEMO_MODE=true` 时**真的不会**用平台配置调用模型（代码层拦截，不只是界面提示）；
-需要离线演示请先 `python tools/make_demo.py` 生成演示结果。
+此时评阅会返回预置演示结果（`data/demo/`，已随仓库发布）。
+需要自己造演示结果请跑 `python tools/build_demo.py`。
 
 例外：学生在侧边栏**自己填了 API Key** 时，即使 `DEMO_MODE=true` 也会放行 ——
 那是他自己的账户，不属于「用平台的钱」。（`DEMO_MODE` 只防误烧平台额度。）

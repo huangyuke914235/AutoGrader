@@ -1,0 +1,24 @@
+深圳大学《Java程序设计》课程实验报告
+实验项目：面向对象程序设计（银行账户类）
+学院：计算机与软件学院　专业：计算机科学与技术
+
+一、实验目的
+本次实验旨在掌握 Java 类的封装、构造方法与方法重载，理解封装对数据合法性的保护作用，
+并能够用 main 方法验证类的行为是否符合预期。
+
+二、实验环境
+JDK 25（Oracle LTS），IntelliJ IDEA 2025.2，Windows 11 23H2。
+命令行执行 java -version 与 javac -version，输出一致，环境可用。
+
+三、实验步骤
+1. 打开 IDEA，新建 Java 项目 JavaExperiment2，SDK 选择 JDK 25；
+2. 在 src 下新建类 BankAccount；
+3. 编写构造方法与 deposit / withdraw / toString 方法；
+4. 编写 main 方法构造两个账户并依次调用各方法；
+5. 运行并观察控制台输出。
+
+四、运行结果
+按照上述步骤操作，程序可以正常运行。
+
+五、实验总结
+本次实验让我熟悉了 IDEA 的基本操作。

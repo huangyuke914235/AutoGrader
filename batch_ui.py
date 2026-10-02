@@ -130,8 +130,12 @@ def _render_multi(samples_dir, rubric, rubric_is_fixed, enable_recheck, files):
                 if gold and rid in gold:
                     row["人工分"] = gold[rid]
                     row["差值"] = round(res.total - gold[rid], 1)
-                details.append({"report_id": rid, "total": res.total,
-                                "judgements": [j.model_dump() for j in res.judgements]})
+                # 明细按 classview 的契约产出（含 name / max / coverage），
+                # 于是「班级学情」页可以直接吃这份数据，不需要再做一次转换 ——
+                # 两套形状最容易出的错就是"界面显示的和看板统计的不是同一批数"。
+                import classview as CV
+                details.append(CV.as_record(rid, res, rubric, full_text=full,
+                                            name=rid))
                 rows.append(row)
             except Exception as e:
                 rows.append({"报告": rid, "总分": None, "备注": f"失败：{str(e)[:120]}"})

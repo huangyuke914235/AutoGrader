@@ -1,0 +1,1032 @@
+{
+ "version": "class-v1",
+ "created_at": "2026-10-02T12:45:11",
+ "course": "Java程序设计 · 面向对象程序设计实验",
+ "engine": "model",
+ "config": {
+  "reports": 12
+ },
+ "reports": [
+  {
+   "report_id": "S02",
+   "name": "S02",
+   "total": 58.0,
+   "chars": 3507,
+   "coverage": "full",
+   "total_incomplete": false,
+   "details": [
+    {
+     "id": "r1",
+     "name": "实验目的明确",
+     "verdict": "miss",
+     "s": 0.0,
+     "max": 15.0,
+     "confidence": 0.85,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [],
+     "dropped": []
+    },
+    {
+     "id": "r2",
+     "name": "环境与步骤",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "新建系统变量JAVA_HOME，值为JDK安装路径C:\\Program Files\\Java\\jdk-25。",
+      "编辑系统变量Path，添加%JAVA_HOME%\\bin，确保Java命令可在任意目录下调用。",
+      "java -version：查看Java运行时版本，输出JDK 25相关信息则安装成功。",
+      "打开IDEA，选择“New Project”，项目类型选择“Java”，JDK选择已安装的JDK 25"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r3",
+     "name": "核心实现",
+     "verdict": "partial",
+     "s": 15.0,
+     "max": 25.0,
+     "confidence": 0.7,
+     "needs_review": true,
+     "system_error": "",
+     "evidence": [
+      "不使用排序库，通过多次遍历标记最小的1800个和最大的1800个极端值。",
+      "BankAccount类封装银行账户的核心属性与操作，通过构造方法初始化账户信息，deposit与withdraw方法实现资金变动",
+      "遍历字符数组，分别收集辅音字母和元音字母，保持各自的相对顺序，最后将辅音数组在前、元音数组在后拼接，得到结果。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r4",
+     "name": "结果与数据",
+     "verdict": "partial",
+     "s": 10.0,
+     "max": 20.0,
+     "confidence": 0.62,
+     "needs_review": true,
+     "system_error": "",
+     "evidence": [
+      "运行结果示例",
+      "截图说明 需包含：JDK下载页面截图、安装完成界面截图、命令行验证版本的全屏截图。",
+      "截图说明 需包含：IDEA项目创建界面截图、代码编辑界面全屏截图、控制台运行结果截图。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r5",
+     "name": "分析与总结",
+     "verdict": "partial",
+     "s": 13.0,
+     "max": 20.0,
+     "confidence": 0.62,
+     "needs_review": true,
+     "system_error": "",
+     "evidence": [
+      "整体时间复杂度为O(n²)，空间复杂度为O(n)。",
+      "总体而言，三大特性共同支撑了面向对象的核心优势：封装保障安全性与低耦合，继承实现代码复用，多态提升系统灵活性。"
+     ],
+     "dropped": []
+    }
+   ]
+  },
+  {
+   "report_id": "S03",
+   "name": "S03",
+   "total": 93.0,
+   "chars": 3863,
+   "coverage": "full",
+   "total_incomplete": false,
+   "details": [
+    {
+     "id": "r1",
+     "name": "实验目的明确",
+     "verdict": "hit",
+     "s": 15.0,
+     "max": 15.0,
+     "confidence": 0.92,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "一 实验目的 • 理解字符级序列建模中字符索引、独热向量与下一字符标签的对应关系。",
+      "• 掌握简单RNN在时间维度上的隐藏状态递推和输出概率计算。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r2",
+     "name": "环境与步骤",
+     "verdict": "partial",
+     "s": 13.0,
+     "max": 20.0,
+     "confidence": 0.86,
+     "needs_review": true,
+     "system_error": "",
+     "evidence": [
+      "python -m pip install -r requirements.txt",
+      "python rnn_char_generation.py",
+      "固定随机种子20260919运行1800轮",
+      "默认参数与本报告完全一致；如需查看可调参数，运行python rnn_char_generation.py --help。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r3",
+     "name": "核心实现",
+     "verdict": "hit",
+     "s": 25.0,
+     "max": 25.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "模型采用单层tanh RNN。W1把29维独热输入映射到48维隐藏空间",
+      "loss, cache = model.forward(inputs, targets) gradients, gradient_norm = model.backward(cache)",
+      "程序从最后一个时间步逆序累加W1、W2、W3和两个偏置的梯度。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r4",
+     "name": "结果与数据",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "平均交叉熵由3.377395降至0.008738，困惑度降至1.008776",
+      "训练100轮后困惑度降至10.109995，200轮后进一步降至1.838045",
+      "八个探针的最大相对误差为7.510×10−8，远小于10−5"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r5",
+     "name": "分析与总结",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.98,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "九 结果分析",
+      "初始困惑度29.294357接近词表大小29，符合随机初始化时各字符概率大致均匀的预期。",
+      "实验完成了题目规定的字符独热编码、W1 W2 W3初始化、RNN前向传播、交叉熵计算、BPTT和梯度下降。"
+     ],
+     "dropped": []
+    }
+   ]
+  },
+  {
+   "report_id": "S04",
+   "name": "S04",
+   "total": 100.0,
+   "chars": 4257,
+   "coverage": "full",
+   "total_incomplete": false,
+   "details": [
+    {
+     "id": "r1",
+     "name": "实验目的明确",
+     "verdict": "hit",
+     "s": 15.0,
+     "max": 15.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "一 实验目的与要求 本实验围绕回答清晰度与问答回避策略展开，目标是把 question 与 interview_answer 组成一个文本对分类任务",
+      "理解 response clarity 与 evasion strategy 的概念，并明确高层三分类和细粒度九分类的关系。",
+      "复现 TF-IDF + Logistic Regression 与 SentenceTransformer 表示 + Logistic Regression 两类基线。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r2",
+     "name": "环境与步骤",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.88,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "PyTorch 版本为 2.14.0+cu130，CUDA 可用。",
+      "datasets、pandas 和 scikit-learn 安装在 code/deps 中",
+      "所有脚本固定 SEED=42，并输出 JSON 指标、CSV 预测和数据元信息。",
+      "运行 D:\\Anaconda\\envs\\pytorch\\python.exe 02_baselines.py"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r3",
+     "name": "核心实现",
+     "verdict": "hit",
+     "s": 25.0,
+     "max": 25.0,
+     "confidence": 0.93,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "拼接 e_q、e_a、|e_q-e_a|、e_q*e_a 四部分特征形成 1536 维表示，编码器冻结",
+      "基线 A 使用 question + [SEP] + answer 的拼接文本"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r4",
+     "name": "结果与数据",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.96,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "图3 统一测试集上的关键运行结果与最佳模型混淆矩阵",
+      "在 QEvasion 测试集上，SentenceTransformer 表示 + LR 的 Macro-F1 为 0.4855",
+      "QNLI 迁移结果的 Macro-F1 为 0.5741",
+      "原任务的 SentenceTransformer 结果已经保存于 outputs/metrics_st_lr.json 和 outputs/predictions_st_lr.csv"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r5",
+     "name": "分析与总结",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.97,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "本实验把问答回避检测转化为可评估的文本对三分类任务，并完成了从数据理解、基线建立到跨场景迁移的完整流程。",
+      "多数类基线的 Accuracy 达到 0.6688，但 Macro-F1 只有 0.2672，说明 Macro-F1 更适合作为主指标。"
+     ],
+     "dropped": []
+    }
+   ]
+  },
+  {
+   "report_id": "C01",
+   "name": "C01",
+   "total": 98.0,
+   "chars": 1624,
+   "coverage": "full",
+   "total_incomplete": false,
+   "details": [
+    {
+     "id": "r1",
+     "name": "实验目的明确",
+     "verdict": "hit",
+     "s": 15.0,
+     "max": 15.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "一、实验目的本次实验旨在掌握 Java 类的封装、构造方法与方法重载，理解封装对数据合法性的保护作用",
+      "并能够用 main 方法验证类的行为是否符合预期。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r2",
+     "name": "环境与步骤",
+     "verdict": "hit",
+     "s": 18.0,
+     "max": 20.0,
+     "confidence": 0.85,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "JDK 25（Oracle LTS），IntelliJ IDEA 2025.2，Windows 11 23H2。",
+      "命令行执行 java -version 与 javac -version，输出一致，环境可用。",
+      "1. 打开 IDEA，新建 Java 项目 JavaExperiment2，SDK 选择 JDK 25；"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r3",
+     "name": "核心实现",
+     "verdict": "hit",
+     "s": 25.0,
+     "max": 25.0,
+     "confidence": 0.98,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "四、核心实现 public class BankAccount { private String accountNo;",
+      "public boolean deposit(double amount) { if (amount <= 0) { return false; }"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r4",
+     "name": "结果与数据",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "五、运行结果控制台输出如下：",
+      "共执行 4 次操作，成功 3 次，失败 1 次",
+      "| 1 | 存款 | 500.00 | 成功 | 1500.00 |"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r5",
+     "name": "分析与总结",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "六、结果分析 1. 取款 2000 元时方法返回 false 且余额保持 1500.00 元不变",
+      "2. 三次操作全部通过返回值表达结果，调用方可以根据返回值决定后续处理",
+      "七、实验总结通过本次实验掌握了三点",
+      "不足之处：只用 main 方法做了手工验证，没有写 JUnit 测试用例"
+     ],
+     "dropped": []
+    }
+   ]
+  },
+  {
+   "report_id": "C02",
+   "name": "C02",
+   "total": 100.0,
+   "chars": 1505,
+   "coverage": "full",
+   "total_incomplete": false,
+   "details": [
+    {
+     "id": "r1",
+     "name": "实验目的明确",
+     "verdict": "hit",
+     "s": 15.0,
+     "max": 15.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "一、实验目的本次实验旨在掌握 Java 类的封装、构造方法与方法重载，理解封装对数据合法性的保护作用",
+      "并能够用 main 方法验证类的行为是否符合预期。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r2",
+     "name": "环境与步骤",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "二、实验环境 JDK 25（Oracle LTS），IntelliJ IDEA 2025.2，Windows 11 23H2。",
+      "命令行执行 java -version 与 javac -version，输出一致，环境可用。",
+      "1. 打开 IDEA，新建 Java 项目 JavaExperiment2，SDK 选择 JDK 25； 2. 在 src 下新建类 BankAccount；",
+      "4. 编写 main 方法构造两个账户并依次调用各方法； 5. 运行并观察控制台输出。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r3",
+     "name": "核心实现",
+     "verdict": "hit",
+     "s": 25.0,
+     "max": 25.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "public class BankAccount {",
+      "public boolean deposit(double amount) {",
+      "public boolean withdraw(double amount) {"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r4",
+     "name": "结果与数据",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "五、运行结果控制台输出如下： 账户 6222-0001 初始余额：1000.00 元",
+      "| 1 | 存款 | 500.00 | 成功 | 1500.00 |",
+      "共执行 4 次操作，成功 3 次，失败 1 次"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r5",
+     "name": "分析与总结",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "说明封装后的余额没有被外部直接修改，数据合法性得到了保证",
+      "三次操作全部通过返回值表达结果，调用方可以根据返回值决定后续处理",
+      "本次实验完成了银行账户类的设计与验证，掌握了封装的基本用法。"
+     ],
+     "dropped": []
+    }
+   ]
+  },
+  {
+   "report_id": "C03",
+   "name": "C03",
+   "total": 100.0,
+   "chars": 1512,
+   "coverage": "full",
+   "total_incomplete": false,
+   "details": [
+    {
+     "id": "r1",
+     "name": "实验目的明确",
+     "verdict": "hit",
+     "s": 15.0,
+     "max": 15.0,
+     "confidence": 0.96,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "一、实验目的本次实验旨在掌握 Java 类的封装、构造方法与方法重载，理解封装对数据合法性的保护作用， 并能够用 main 方法验证类的行为是否符合预期。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r2",
+     "name": "环境与步骤",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.9,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "打开 IDEA，新建 Java 项目 JavaExperiment2，SDK 选择 JDK 25",
+      "在 src 下新建类 BankAccount；",
+      "编写 main 方法构造两个账户并依次调用各方法；",
+      "运行并观察控制台输出。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r3",
+     "name": "核心实现",
+     "verdict": "hit",
+     "s": 25.0,
+     "max": 25.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "public class BankAccount { private String accountNo;",
+      "public boolean deposit(double amount) {",
+      "public boolean withdraw(double amount) {"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r4",
+     "name": "结果与数据",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.9,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "五、运行结果控制台输出如下： 账户 6222-0001 初始余额：1000.00 元存入 500.00 元",
+      "| 1 | 存款 | 500.00 | 成功 | 1500.00 |",
+      "| 2 | 取款 | 2000.00 | 失败 | 1500.00 |",
+      "共执行 4 次操作，成功 3 次，失败 1 次"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r5",
+     "name": "分析与总结",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "六、结果分析 1. 取款 2000 元时方法返回 false 且余额保持 1500.00 元不变",
+      "七、实验总结通过本次实验掌握了三点：私有字段配合公有方法可以把数据校校验收敛到类的内部",
+      "不足之处：只用 main 方法做了手工验证，没有写 JUnit 测试用例，覆盖场景偏少"
+     ],
+     "dropped": []
+    }
+   ]
+  },
+  {
+   "report_id": "C04",
+   "name": "C04",
+   "total": 72.0,
+   "chars": 1082,
+   "coverage": "full",
+   "total_incomplete": false,
+   "details": [
+    {
+     "id": "r1",
+     "name": "实验目的明确",
+     "verdict": "hit",
+     "s": 15.0,
+     "max": 15.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "一、实验目的本次实验旨在掌握 Java 类的封装、构造方法与方法重载",
+      "并能够用 main 方法验证类的行为是否符合预期"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r2",
+     "name": "环境与步骤",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.9,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "二、实验环境 JDK 25（Oracle LTS），IntelliJ IDEA 2025.2，Windows 11 23H2。",
+      "命令行执行 java -version 与 javac -version，输出一致，环境可用。",
+      "三、实验步骤 1. 打开 IDEA，新建 Java 项目 JavaExperiment2，SDK 选择 JDK 25； 2. 在 src 下新建类 BankAccount；"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r3",
+     "name": "核心实现",
+     "verdict": "hit",
+     "s": 25.0,
+     "max": 25.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "public class BankAccount { private String accountNo;",
+      "public BankAccount(String accountNo, double balance) {",
+      "public boolean deposit(double amount) {",
+      "if (amount <= 0 || amount > this.balance) { return false; }"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r4",
+     "name": "结果与数据",
+     "verdict": "miss",
+     "s": 0.0,
+     "max": 20.0,
+     "confidence": 0.72,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [],
+     "dropped": []
+    },
+    {
+     "id": "r5",
+     "name": "分析与总结",
+     "verdict": "partial",
+     "s": 12.0,
+     "max": 20.0,
+     "confidence": 0.7,
+     "needs_review": true,
+     "system_error": "",
+     "evidence": [
+      "六、结果分析程序运行正确，符合预期，说明类设计没有问题。",
+      "七、实验总结本次实验收获很大，学会了面向对象的基本写法。"
+     ],
+     "dropped": []
+    }
+   ]
+  },
+  {
+   "report_id": "C05",
+   "name": "C05",
+   "total": 80.0,
+   "chars": 1296,
+   "coverage": "full",
+   "total_incomplete": false,
+   "details": [
+    {
+     "id": "r1",
+     "name": "实验目的明确",
+     "verdict": "hit",
+     "s": 15.0,
+     "max": 15.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "本次实验旨在掌握 Java 类的封装、构造方法与方法重载，理解封装对数据合法性的保护作用"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r2",
+     "name": "环境与步骤",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "二、实验环境 JDK 25（Oracle LTS），IntelliJ IDEA 2025.2，Windows 11 23H2。",
+      "命令行执行 java -version 与 javac -version，输出一致，环境可用。",
+      "1. 打开 IDEA，新建 Java 项目 JavaExperiment2，SDK 选择 JDK 25；",
+      "5. 运行并观察控制台输出。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r3",
+     "name": "核心实现",
+     "verdict": "hit",
+     "s": 25.0,
+     "max": 25.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "public class BankAccount { private String accountNo;",
+      "throw new IllegalArgumentException(\"初始余额不能为负\");",
+      "public boolean withdraw(double amount) { if (amount <= 0 || amount > this.balance) {"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r4",
+     "name": "结果与数据",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "五、运行结果控制台输出如下：",
+      "共执行 4 次操作，成功 3 次，失败 1 次",
+      "| 1 | 存款 | 500.00 | 成功 | 1500.00 |"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r5",
+     "name": "分析与总结",
+     "verdict": "miss",
+     "s": 0.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [],
+     "dropped": []
+    }
+   ]
+  },
+  {
+   "report_id": "C06",
+   "name": "C06",
+   "total": 49.0,
+   "chars": 481,
+   "coverage": "full",
+   "total_incomplete": false,
+   "details": [
+    {
+     "id": "r1",
+     "name": "实验目的明确",
+     "verdict": "hit",
+     "s": 15.0,
+     "max": 15.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "一、实验目的本次实验旨在掌握 Java 类的封装、构造方法与方法重载，理解封装对数据合法性的保护作用，"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r2",
+     "name": "环境与步骤",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "JDK 25（Oracle LTS），IntelliJ IDEA 2025.2，Windows 11 23H2。",
+      "命令行执行 java -version 与 javac -version，输出一致，环境可用。",
+      "1. 打开 IDEA，新建 Java 项目 JavaExperiment2，SDK 选择 JDK 25；",
+      "5. 运行并观察控制台输出。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r3",
+     "name": "核心实现",
+     "verdict": "partial",
+     "s": 8.0,
+     "max": 25.0,
+     "confidence": 0.62,
+     "needs_review": true,
+     "system_error": "",
+     "evidence": [
+      "2. 在 src 下新建类 BankAccount； 3. 编写构造方法与 deposit / withdraw / toString 方法；",
+      "4. 编写 main 方法构造两个账户并依次调用各方法；"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r4",
+     "name": "结果与数据",
+     "verdict": "miss",
+     "s": 0.0,
+     "max": 20.0,
+     "confidence": 0.88,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [],
+     "dropped": []
+    },
+    {
+     "id": "r5",
+     "name": "分析与总结",
+     "verdict": "partial",
+     "s": 6.0,
+     "max": 20.0,
+     "confidence": 0.78,
+     "needs_review": true,
+     "system_error": "",
+     "evidence": [
+      "四、运行结果按照上述步骤操作，程序可以正常运行。",
+      "五、实验总结本次实验让我熟悉了 IDEA 的基本操作。"
+     ],
+     "dropped": []
+    }
+   ]
+  },
+  {
+   "report_id": "C07",
+   "name": "C07",
+   "total": 38.0,
+   "chars": 411,
+   "coverage": "full",
+   "total_incomplete": false,
+   "details": [
+    {
+     "id": "r1",
+     "name": "实验目的明确",
+     "verdict": "miss",
+     "s": 0.0,
+     "max": 15.0,
+     "confidence": 0.9,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [],
+     "dropped": []
+    },
+    {
+     "id": "r2",
+     "name": "环境与步骤",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.85,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "JDK 25（Oracle LTS），IntelliJ IDEA 2025.2，Windows 11 23H2。",
+      "1. 打开 IDEA，新建 Java 项目 JavaExperiment2，SDK 选择 JDK 25；"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r3",
+     "name": "核心实现",
+     "verdict": "partial",
+     "s": 12.0,
+     "max": 25.0,
+     "confidence": 0.85,
+     "needs_review": true,
+     "system_error": "",
+     "evidence": [
+      "编写了 BankAccount 类，实现了存款和取款两个方法。",
+      "编写构造方法与 deposit / withdraw / toString 方法；"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r4",
+     "name": "结果与数据",
+     "verdict": "miss",
+     "s": 0.0,
+     "max": 20.0,
+     "confidence": 0.88,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [],
+     "dropped": []
+    },
+    {
+     "id": "r5",
+     "name": "分析与总结",
+     "verdict": "partial",
+     "s": 6.0,
+     "max": 20.0,
+     "confidence": 0.82,
+     "needs_review": true,
+     "system_error": "",
+     "evidence": [
+      "四、实验总结程序能跑通，基本完成了实验要求。"
+     ],
+     "dropped": []
+    }
+   ]
+  },
+  {
+   "report_id": "C08",
+   "name": "C08",
+   "total": 0.0,
+   "chars": 157,
+   "coverage": "full",
+   "total_incomplete": false,
+   "details": [
+    {
+     "id": "r1",
+     "name": "实验目的明确",
+     "verdict": "miss",
+     "s": 0.0,
+     "max": 15.0,
+     "confidence": 0.82,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [],
+     "dropped": []
+    },
+    {
+     "id": "r2",
+     "name": "环境与步骤",
+     "verdict": "miss",
+     "s": 0.0,
+     "max": 20.0,
+     "confidence": 0.9,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [],
+     "dropped": []
+    },
+    {
+     "id": "r3",
+     "name": "核心实现",
+     "verdict": "miss",
+     "s": 0.0,
+     "max": 25.0,
+     "confidence": 0.8,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [],
+     "dropped": []
+    },
+    {
+     "id": "r4",
+     "name": "结果与数据",
+     "verdict": "miss",
+     "s": 0.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [],
+     "dropped": []
+    },
+    {
+     "id": "r5",
+     "name": "分析与总结",
+     "verdict": "miss",
+     "s": 0.0,
+     "max": 20.0,
+     "confidence": 0.85,
+     "needs_review": true,
+     "system_error": "",
+     "evidence": [],
+     "dropped": []
+    }
+   ]
+  },
+  {
+   "report_id": "C09",
+   "name": "C09",
+   "total": 88.0,
+   "chars": 1326,
+   "coverage": "full",
+   "total_incomplete": false,
+   "details": [
+    {
+     "id": "r1",
+     "name": "实验目的明确",
+     "verdict": "hit",
+     "s": 15.0,
+     "max": 15.0,
+     "confidence": 0.96,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "一、实验目的本次实验旨在掌握 Java 类的封装、构造方法与方法重载，理解封装对数据合法性的保护作用， 并能够用 main 方法验证类的行为是否符合预期。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r2",
+     "name": "环境与步骤",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.8,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "二、实验环境 JDK 25（Oracle LTS），IntelliJ IDEA 2025.2，Windows 11 23H2。",
+      "三、实验步骤 1. 打开 IDEA，新建 Java 项目 JavaExperiment2，SDK 选择 JDK 25；",
+      "命令行执行 java -version 与 javac -version，输出一致，环境可用。"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r3",
+     "name": "核心实现",
+     "verdict": "hit",
+     "s": 25.0,
+     "max": 25.0,
+     "confidence": 0.97,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "public class BankAccount { private String accountNo; private double balance;",
+      "public boolean deposit(double amount) { if (amount <= 0) { return false; } this.balance += amount; return true; }"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r4",
+     "name": "结果与数据",
+     "verdict": "hit",
+     "s": 20.0,
+     "max": 20.0,
+     "confidence": 0.95,
+     "needs_review": false,
+     "system_error": "",
+     "evidence": [
+      "五、运行结果控制台输出如下：",
+      "共执行 4 次操作，成功 3 次，失败 1 次",
+      "| 操作序号 | 操作类型 | 金额 | 结果 | 余额 |"
+     ],
+     "dropped": []
+    },
+    {
+     "id": "r5",
+     "name": "分析与总结",
+     "verdict": "partial",
+     "s": 8.0,
+     "max": 20.0,
+     "confidence": 0.75,
+     "needs_review": true,
+     "system_error": "",
+     "evidence": [
+      "六、实验总结本次实验完成了所有要求的操作，结果与预期一致。"
+     ],
+     "dropped": []
+    }
+   ]
+  }
+ ]
+}

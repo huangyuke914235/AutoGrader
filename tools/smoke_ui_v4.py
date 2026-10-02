@@ -108,6 +108,27 @@ def main():
     except Exception as e:
         failures.append(f"点击评阅按钮时出错：{type(e).__name__}: {e}")
 
+    # 班级学情看板：必须真的渲染出数据，而不是只加载了模块
+    try:
+        texts = (" ".join((m.value or "") for m in at.markdown)
+                 + " ".join((s.value or "") for s in at.subheader)
+                 + " ".join((c.value or "") for c in at.caption))
+        if "班级学情" not in texts:
+            failures.append("「班级学情」看板没有渲染")
+        # 演示队列在仓库里，应当能读到并算出统计量
+        metrics = {m.label: m.value for m in at.metric}
+        if metrics:
+            print(f"        班级看板指标：{metrics}")
+            if not any(k.startswith("参评") for k in metrics):
+                failures.append("看板缺「参评/有效」指标，可能没有读到演示队列")
+        else:
+            failures.append("看板没有渲染任何指标（演示队列可能没读到）")
+        for want in ("共性短板", "建议动作", "需要关注的学生"):
+            if want not in texts:
+                failures.append(f"看板缺少「{want}」这一节")
+    except Exception as e:
+        failures.append(f"检查班级看板时出错：{type(e).__name__}: {e}")
+
     if failures:
         print("[FAIL] 界面冒烟未通过：")
         for f in failures:

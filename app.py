@@ -26,6 +26,7 @@ import parser as P
 import prompts
 import ocr
 import batch_ui
+import class_ui
 import providers
 import chrome_i18n
 import selfcheck as SC
@@ -608,7 +609,8 @@ st.caption("把老师的评分标准变成可核查、可溯源、可校准的�
 sweep_stale_uploads()      # 兜底清扫超期上传残留（正常路径都会在 finally 里删掉）
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    ["① 评阅", "② 详情对照", "③ 评分点", "④ 导出", "⑤ 批量测试", "⑥ 学生自检"])
+    ["① 评阅", "② 详情对照", "③ 评分点", "④ 导出",
+     "⑤ 批量测试与班级学情", "⑥ 学生自检"])
 
 # ---------- 教师端 ①~⑤：常显 ----------
 # v3 起按用户要求恢复常显：老师实际打分是 100 分制，学生端保留教师入口。
@@ -1110,10 +1112,15 @@ with tab4:
             st.caption(f"结果同时已保存至 data/results/{res.report_id}.json"
                        f"（含 AI 原始分、人工改分记录与运行元信息）")
 
-# ---------- tab5 批量测试 ----------
+# ---------- tab5 批量测试 + 班级学情 ----------
+# 两件事放在同一页是有意的：批量评阅是**输入**、班级学情是**结论**。
+# 教师跑完一个班的报告，下一步要的正是"这个班普遍卡在哪"，
+# 而不是一张需要自己再看一遍的分数表。
 with tab5:
     batch_ui.render(SAMPLES, RESULTS, _SAMPLE_NOTE,
                     custom_rubric=st.session_state.get("rubric"))
+    st.markdown("---")
+    class_ui.render(course_hint=st.session_state.get("course_input", ""))
 
 # ---------- tab6 学生自检 ----------
 # 与 tab1 的两点本质区别，界面上必须说清楚，否则会被当成「第二个评分入口」：

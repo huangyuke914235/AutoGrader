@@ -33,15 +33,74 @@ def _load_cohort(path: str) -> dict:
 def available_sources() -> list:
     """看板的数据来源：演示队列 + 其它落盘的队列文件"""
     out = []
+def _read_batch_run(path: str):
+    """把 tools/batch_run.py 的产物转成看板入参；读不动就返回 None。
+
+    CLI 与界面走的是同一套判定，产出形状也一样（都是 `details` 明细），
+    所以这里不需要转换，只要确认它确实是批量结果而不是别的 JSON。
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    reports = data.get("results") or data.get("reports") or []
+    if not isinstance(reports, list) or not reports:
+        return None
+    if not any(r.get("details") for r in reports if isinstance(r, dict)):
+        return None
+    # course 有两个可能的位置：CLI 产物放在 config 里，队列文件放在顶层。
+    # 只认其中一处会让另一个来源的课程名悄悄变成空串（界面上少一行说明，
+    # 导出的留档里也少了上下文）—— 两处都看，取先有的那个。
+    course = (data.get("config") or {}).get("course") or data.get("course") or ""
+    return {"reports": reports, "course": course}
+
+
+def available_sources() -> list:
+    """看板的数据来源，按"最可能是教师刚跑出来的"排序：
+
+    1. `data/results/batch_v2_*.json` —— CLI 跑 `tools/batch_run.py` 的产物。
+       放在最前是有意的：教师刚在命令行跑完一个班，回到界面就该能立刻看到结论，
+       而不是还要手动把文件拷到某个目录去。
+    2. 演示队列与 `data/class_demo/` 下的其它队列。
+    """
+    out = []
+
+    results_dir = os.path.join(ROOT, "data", "results")
+    if os.path.isdir(results_dir):
+        found = []
+        for fn in os.listdir(results_dir):
+            if not (fn.startswith("batch") and fn.endswith(".json")):
+                continue
+            p = os.path.join(results_dir, fn)
+            if _read_batch_run(p) is not None:
+                found.append((os.path.getmtime(p), fn, p))
+        # 新的在前：教师刚跑的那次应当是第一眼看到的
+        for _, fn, p in sorted(found, reverse=True):
+            out.append((f"CLI 批量结果 · {fn}", p))
+
     if os.path.exists(COHORT):
         out.append(("演示班级（12 份，含自造样本）", COHORT))
+
     d = os.path.join(ROOT, "data", "class_demo")
     if os.path.isdir(d):
         for fn in sorted(os.listdir(d)):
             p = os.path.join(d, fn)
             if fn.endswith(".json") and os.path.abspath(p) != os.path.abspath(COHORT):
-                out.append((fn, p))
+                # 只列真正的队列文件：`data/class_demo/` 下还放着一份
+                # ocr_comparison.json（读图前后对照），它不是队列，
+                # 列进下拉框只会让人选到一个打不开的东西。
+                if _read_batch_run(p) is not None:
+                    out.append((fn, p))
     return out
+
+
+def load_source(path: str) -> dict:
+    """读一个数据来源。CLI 产物与队列文件两种形状都支持。"""
+    got = _read_batch_run(path)
+    if got is not None:
+        return got
+    return _load_cohort(path)
 
 
 def render(course_hint: str = "") -> None:
@@ -53,28 +112,38 @@ def render(course_hint: str = "") -> None:
     batch_details = st.session_state.get("batch_details") or []
 
     picked = st.radio(
-        "数据来源", ["本次批量评阅的结果", "演示班级队列"],
+        "数据来源",
+        ["本次界面批量评阅的结果", "已落盘的批量结果 / 演示队列"],
         horizontal=True,
         index=0 if batch_details else (1 if sources else 1),
-        help="刚跑完批量评阅就用第一项；想先看这一页长什么样就选演示队列")
+        help="刚在界面跑完批量评阅就用第一项；用命令行跑过 tools/batch_run.py、"
+             "或想先看这一页长什么样，就用第二项")
 
-    if picked == "本次批量评阅的结果":
+    if picked.startswith("本次界面"):
         if not batch_details:
-            st.info("还没有本次批量结果。请到上面的「多份报告批量评阅」先跑一次，"
-                    "或直接切到「演示班级队列」看这一页的形态。")
+            st.info("还没有本次批量结果。可以：\n\n"
+                    "① 到上面的「多份报告批量评阅」跑一次；或\n"
+                    "② 用命令行跑 `python tools/batch_run.py`，"
+                    "它的产物会自动出现在另一个选项里")
             return
         cohort = {"reports": batch_details, "course": course_hint}
-        quality_head = ("本次结果来自你刚跑的批量评阅。")
+        quality_head = "本次结果来自你刚跑的界面批量评阅。"
     else:
         if not sources:
-            st.info("仓库里没有班级演示队列。生成方式：\n\n"
-                    "```\npython tools/make_class_roster.py\n"
-                    "python tools/build_class_demo.py\n```")
+            st.info("没有可用的批量结果。生成方式：\n\n"
+                    "```\n"
+                    "python tools/batch_run.py        # 命令行批量评阅（结果落到 data/results/）\n"
+                    "python tools/make_class_roster.py && python tools/build_class_demo.py"
+                    "   # 或生成演示队列\n```")
             return
-        label = st.selectbox("队列文件", [s[0] for s in sources])
+        labels = [s[0] for s in sources]
+        label = st.selectbox("数据来源文件", labels)
         path = dict(sources)[label]
-        cohort = _load_cohort(path)
-        quality_head = f"演示队列：`{os.path.relpath(path, ROOT)}`（{label}）"
+        cohort = load_source(path)
+        if not cohort.get("reports"):
+            st.warning(f"这个文件里没有可用的批量结果：`{os.path.relpath(path, ROOT)}`")
+            return
+        quality_head = f"数据来自 `{os.path.relpath(path, ROOT)}`（{label}）"
 
     agg = CV.aggregate(cohort)
     if not agg["n_scored"] and not agg["n_reports"]:
